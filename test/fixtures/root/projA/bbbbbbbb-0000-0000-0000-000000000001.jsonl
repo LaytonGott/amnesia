@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"just a normal short session"},"uuid":"v1","timestamp":"2026-10-01T11:00:00.000Z","parentUuid":null}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"uuid":"v2","timestamp":"2026-10-01T11:00:10.000Z","parentUuid":"v1"}

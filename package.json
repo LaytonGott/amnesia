@@ -16,7 +16,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node bin/amnesia.mjs"
+    "start": "node bin/amnesia.mjs",
+    "test": "node --test"
   },
   "keywords": [
     "claude-code",

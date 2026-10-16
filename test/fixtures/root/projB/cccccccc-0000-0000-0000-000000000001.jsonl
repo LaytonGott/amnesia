@@ -1,0 +1,4 @@
+{this is not valid json
+{"type":"user","message":{"role":"user","content":"session with a malformed line then a manual compact"},"uuid":"w1","timestamp":"2026-10-01T12:00:00.000Z","parentUuid":null}
+{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":50000,"postTokens":3000,"durationMs":30000},"uuid":"w2","timestamp":"2026-10-01T12:05:00.000Z"}
+{"type":"user","message":{"role":"user","content":"carry on"},"uuid":"w3","timestamp":"2026-10-01T12:06:00.000Z","parentUuid":"w2"}
