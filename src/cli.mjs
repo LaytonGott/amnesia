@@ -3,11 +3,12 @@ import { basename, dirname, join } from "node:path";
 import {
   listSessionFiles,
   scanFile,
+  scanPersisted,
   encodeProjectPath,
   DEFAULT_ROOT,
 } from "./claude.mjs";
 import { renderScan, renderReceipt, style } from "./render.mjs";
-import { runRestore, runProtect } from "./actions.mjs";
+import { runRestore, runProtect, runRecover } from "./actions.mjs";
 import {
   installHooks,
   uninstallHooks,
@@ -27,6 +28,8 @@ function printHelp() {
                                 recover dropped messages into a readable file
     amnesia protect [<session>] [--project <dir>] [--write] [--out <file>]
                                 extract dropped constraints into CLAUDE.md
+    amnesia recover [<session>] [--out <dir>]
+                                recover tool outputs that were persisted to disk
     amnesia install [--settings <file>] [--dry-run]
                                 wire Claude Code hooks: snapshot before every
                                 compaction, announce it after
@@ -98,15 +101,28 @@ function resolveFile(files, selector) {
   return { file };
 }
 
-async function latestCompacted(files, dir) {
-  const cands = files
+function recentIn(files, dir) {
+  return files
     .filter((f) => dirname(f.path) === dir)
     .sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0))
     .slice(0, 12);
-  for (const f of cands) {
+}
+
+async function latestCompacted(files, dir) {
+  for (const f of recentIn(files, dir)) {
     try {
       const r = await scanFile(f);
       if (r.boundaries.length > 0) return f;
+    } catch {}
+  }
+  return null;
+}
+
+async function latestWithPersisted(files, dir) {
+  for (const f of recentIn(files, dir)) {
+    try {
+      const r = await scanPersisted(f);
+      if (r.refs.length > 0) return f;
     } catch {}
   }
   return null;
@@ -145,7 +161,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.3.0");
+      console.log("amnesia 0.4.0");
       return;
     } else pos.push(a);
   }
@@ -282,6 +298,41 @@ export async function main(argv) {
       }
     }
     await runProtect({ files, root, projectArg, sessionFile, write, outPath });
+    return;
+  }
+
+  if (cmd === "recover") {
+    const selector = pos[1] || null;
+    let file = null;
+    if (selector) {
+      const r = resolveFile(files, selector);
+      if (r.error) {
+        process.exitCode = 1;
+        return;
+      }
+      file = r.file;
+      if (!file) {
+        console.error(style.red(`no session matching "${selector}"`));
+        process.exitCode = 1;
+        return;
+      }
+    } else {
+      const dir = join(root, encodeProjectPath(process.cwd()));
+      if (!existsSync(dir)) {
+        console.error(style.red("no Claude Code sessions found for this directory."));
+        console.error(style.dim("pass a session id:  amnesia recover <session-id>"));
+        process.exitCode = 1;
+        return;
+      }
+      file = await latestWithPersisted(files, dir);
+      if (!file) {
+        console.log(
+          style.green("  nothing to recover \u2014 no persisted tool outputs in this project's recent sessions.")
+        );
+        return;
+      }
+    }
+    await runRecover({ file, outDir: outPath });
     return;
   }
 

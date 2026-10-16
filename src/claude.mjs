@@ -244,3 +244,62 @@ export function droppedForBoundary(history, index) {
 export function eventKeyOf(b) {
   return `${b.timestamp}|${b.preTokens}|${b.postTokens}`;
 }
+
+export const CLEARED_PLACEHOLDER = "[Old tool result content cleared]";
+
+export async function scanPersisted(file) {
+  const refs = [];
+  const cleared = [];
+
+  const rl = readline.createInterface({
+    input: createReadStream(file.path, "utf8"),
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
+    if (!line.includes("tool_result")) continue;
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!o || o.type !== "user") continue;
+    const content = o.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (!b || b.type !== "tool_result") continue;
+      let s = null;
+      if (typeof b.content === "string") {
+        s = b.content;
+      } else if (Array.isArray(b.content)) {
+        s = b.content
+          .filter((x) => x && x.type === "text" && typeof x.text === "string")
+          .map((x) => x.text)
+          .join("\n");
+      }
+      if (!s) continue;
+      if (s.includes("<persisted-output>")) {
+        const m =
+          s.match(/Full output saved to:\s*([^\r\n]+)/) ||
+          s.match(/Tool result saved to:\s*([^\r\n]+)/);
+        const sizeM = s.match(/\(([\d.]+\s*[KMG]B)\)/);
+        const prevM = s.match(/Preview \(first [^)]*\):\s*\r?\n([\s\S]*)$/);
+        refs.push({
+          toolUseId: b.tool_use_id || null,
+          timestamp: o.timestamp || null,
+          path: m ? m[1].trim() : null,
+          sizeLabel: sizeM ? sizeM[1] : null,
+          preview: prevM ? prevM[1].trim().slice(0, 600) : null,
+        });
+      } else if (s.trim() === CLEARED_PLACEHOLDER) {
+        cleared.push({
+          toolUseId: b.tool_use_id || null,
+          timestamp: o.timestamp || null,
+        });
+      }
+    }
+  }
+
+  return { refs, cleared };
+}

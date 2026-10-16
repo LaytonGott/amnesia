@@ -1,10 +1,18 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import {
   collectHistory,
   droppedForBoundary,
   encodeProjectPath,
   eventKeyOf,
+  scanPersisted,
 } from "./claude.mjs";
 import {
   style,
@@ -349,6 +357,154 @@ export async function runProtect({
   );
   console.log(
     style.dim("  section: amnesia:constraints (updates in place \u2014 safe to re-run)")
+  );
+  console.log("");
+}
+
+function fmtBytes(n) {
+  if (n == null) return "?";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+export async function runRecover({ file, outDir }) {
+  const { refs, cleared } = await scanPersisted(file);
+  const out = outDir
+    ? isAbsolute(outDir)
+      ? outDir
+      : join(process.cwd(), outDir)
+    : join(process.cwd(), ".amnesia", "recovered", file.session.slice(0, 8));
+
+  console.log("");
+  console.log(style.bold("  amnesia") + style.dim(" \u00b7 recover"));
+  console.log(
+    style.dim(
+      `  ${truncate(file.project, 40)}/${file.session.slice(0, 8)} \u00b7 ${refs.length} persisted output(s)` +
+        (cleared.length > 0 ? ` \u00b7 ${cleared.length} cleared placeholder(s)` : "")
+    )
+  );
+  console.log("");
+
+  if (refs.length === 0) {
+    console.log(
+      style.green("  nothing to recover \u2014 no persisted tool outputs in this session.")
+    );
+    if (cleared.length > 0) {
+      console.log(
+        style.dim(
+          `  ${cleared.length} tool result(s) were cleared with no saved file (unrecoverable).`
+        )
+      );
+    }
+    console.log("");
+    return;
+  }
+
+  mkdirSync(out, { recursive: true });
+
+  const entries = [];
+  let totalBytes = 0;
+  for (const r of refs) {
+    let ok = false;
+    let bytes = 0;
+    let destName = null;
+    if (r.path && existsSync(r.path)) {
+      try {
+        bytes = statSync(r.path).size;
+        const base = r.path.split(/[\\/]/).pop();
+        destName = base;
+        let dest = join(out, destName);
+        if (existsSync(dest)) {
+          destName = `${(r.toolUseId || "out").slice(-8)}-${base}`;
+          dest = join(out, destName);
+        }
+        copyFileSync(r.path, dest);
+        ok = true;
+        totalBytes += bytes;
+      } catch {
+        ok = false;
+      }
+    }
+    entries.push({ ...r, exists: ok, bytes, destName });
+  }
+
+  const md = [];
+  md.push("# Recovered tool outputs (amnesia)");
+  md.push("");
+  md.push(`- Session: \`${file.session}\` (${file.project})`);
+  md.push(`- Generated: ${new Date().toISOString().slice(0, 16).replace("T", " ")}`);
+  md.push(
+    `- Recovered: ${entries.filter((e) => e.exists).length} of ${entries.length} referenced output(s)`
+  );
+  md.push("");
+  md.push("## How to use");
+  md.push("");
+  md.push("Paste this to your agent:");
+  md.push("");
+  md.push(
+    `> Tool outputs from earlier in this session were persisted to disk when they got too large. The full outputs are in \`${out}\` and listed in this manifest. Read any file you need.`
+  );
+  md.push("");
+  md.push("## Outputs");
+  md.push("");
+  entries.forEach((e, i) => {
+    md.push(
+      `### ${i + 1}. ${e.destName || (e.path ? e.path.split(/[\\/]/).pop() : "(no path)")}${e.exists ? ` (${fmtBytes(e.bytes)})` : " \u2014 missing"}`
+    );
+    md.push("");
+    md.push(`- tool_use_id: \`${e.toolUseId || "?"}\``);
+    md.push(`- original: \`${e.path || "unknown"}\``);
+    if (!e.exists) md.push("- state: source file no longer exists (unrecoverable)");
+    if (e.preview) {
+      md.push("- preview:");
+      md.push("");
+      md.push("```");
+      md.push(e.preview.split(/\r?\n/).slice(0, 12).join("\n"));
+      md.push("```");
+    }
+    md.push("");
+  });
+  if (cleared.length > 0) {
+    md.push("## Cleared placeholders (unrecoverable)");
+    md.push("");
+    for (const c of cleared) {
+      md.push(
+        `- \`${c.toolUseId || "?"}\` (${c.timestamp || "?"}) \u2014 content cleared with no saved file`
+      );
+    }
+    md.push("");
+  }
+  writeFileSync(join(out, "MANIFEST.md"), md.join("\n"), "utf8");
+
+  entries.forEach((e, i) => {
+    const name = truncate(
+      e.destName || (e.path ? e.path.split(/[\\/]/).pop() : "unknown"),
+      44
+    ).padEnd(46);
+    const status = e.exists ? fmtBytes(e.bytes) : "missing";
+    console.log(
+      `  ${String(i + 1).padStart(3)}. ${name} ${e.exists ? status : style.red(status)}`
+    );
+  });
+  console.log("");
+  const okCount = entries.filter((e) => e.exists).length;
+  console.log(
+    style.green(
+      `  recovered ${okCount}/${entries.length} output(s) (${fmtBytes(totalBytes)}) into ${out}`
+    )
+  );
+  if (cleared.length > 0) {
+    console.log(
+      style.dim(
+        `  ${cleared.length} cleared placeholder(s) had no saved file (unrecoverable).`
+      )
+    );
+  }
+  console.log("");
+  console.log(style.dim("  paste this to your agent:"));
+  console.log(
+    `  Read \`${join(out, "MANIFEST.md")}\` \u2014 the full tool outputs from earlier in this session are in the same directory.`
   );
   console.log("");
 }

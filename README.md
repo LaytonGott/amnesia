@@ -4,11 +4,12 @@
 
 When a Claude Code session runs long, the agent quietly replaces your history
 with a summary — hundreds of messages, hundreds of thousands of tokens, gone
-from context. No notice, no receipt. amnesia gives you all three:
+from context. No notice, no receipt. amnesia gives you all four:
 
 1. **The receipt** — see exactly what was forgotten, when, and what it cost you
 2. **`restore`** — recover the dropped messages into a readable file your agent can re-read
 3. **`protect`** — move your dropped rules into `CLAUDE.md` so they survive every future compaction
+4. **`recover`** — bring back tool outputs that were persisted to disk and replaced with a pointer
 
 ```
   amnesia · compaction receipt for claude-code
@@ -44,6 +45,9 @@ npx amnesia-cli restore --all            recover every compaction in a session
 npx amnesia-cli protect                  show constraints that were dropped in this project
 npx amnesia-cli protect --write          write them into CLAUDE.md (marked section, safe to re-run)
 
+npx amnesia-cli recover                  recover tool outputs persisted in this project's latest session
+npx amnesia-cli recover <session-id>     recover a specific session's persisted outputs
+
 npx amnesia-cli install                  wire Claude Code hooks: auto-snapshot before
                                          every compaction, announce it after
 npx amnesia-cli uninstall                remove the hooks
@@ -71,6 +75,24 @@ every compact). `protect` scans your dropped prompts, finds constraint-like
 sentences, and writes them into a clearly marked section of your project's
 `CLAUDE.md`. Dry-run by default; `--write` applies. Re-running updates the
 section in place.
+
+### recover
+
+When a tool output is too large, Claude Code saves the full output to disk
+(`<session>/tool-results/`) and leaves only a pointer and a short preview in the
+conversation:
+
+```
+<persisted-output>
+Output too large (46.8KB). Full output saved to: …\tool-results\biatg8u3p.txt
+Preview (first 2KB): …
+```
+
+The same happens to results later cleared by micro-compaction. `recover` finds
+every pointer in a session, copies the full outputs into
+`.amnesia/recovered/<session>/`, and writes a `MANIFEST.md` mapping each output
+to its tool call — with a paste-line so your agent can read them again.
+Outputs whose files were pruned from disk are listed as unrecoverable.
 
 ### install (automatic mode — recommended)
 
@@ -103,7 +125,7 @@ originating session file where the history lives.
 
 - [ ] Codex CLI / Gemini CLI / opencode session support
 - [x] PreCompact hook: auto-archive before every compaction fires
-- [ ] Recovery of tool output cleared by micro-compaction
+- [x] Recovery of persisted tool outputs (oversized and cleared results)
 - [ ] Shareable receipt cards
 - [ ] Cost view (cache read/write tax per compaction)
 
