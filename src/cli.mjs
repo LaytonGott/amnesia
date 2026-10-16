@@ -16,6 +16,14 @@ import {
   hookPostcompact,
   defaultSettingsPath,
 } from "./hooks.mjs";
+import {
+  listCodexSessions,
+  scanCodexSession,
+  codexToJson,
+  renderCodexScan,
+  renderCodexReceipt,
+  CODEX_ROOT,
+} from "./codex.mjs";
 
 function printHelp() {
   console.log(`
@@ -30,6 +38,7 @@ function printHelp() {
                                 extract dropped constraints into CLAUDE.md
     amnesia recover [<session>] [--out <dir>]
                                 recover tool outputs that were persisted to disk
+    amnesia codex [<session>]   Codex CLI sessions: scan + compaction receipts
     amnesia install [--settings <file>] [--dry-run]
                                 wire Claude Code hooks: snapshot before every
                                 compaction, announce it after
@@ -138,6 +147,7 @@ export async function main(argv) {
   let outPath = null;
   let projectArg = null;
   let settingsPath = null;
+  let rootExplicit = false;
   const pos = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -157,11 +167,12 @@ export async function main(argv) {
         return;
       }
       root = v;
+      rootExplicit = true;
     } else if (a === "--help" || a === "-h") {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.4.0");
+      console.log("amnesia 0.5.0");
       return;
     } else pos.push(a);
   }
@@ -242,6 +253,75 @@ export async function main(argv) {
     }
     console.error("usage: amnesia hook precompact|postcompact");
     process.exitCode = 1;
+    return;
+  }
+
+  if (cmd === "codex") {
+    const croot = rootExplicit ? root : CODEX_ROOT;
+    const codexFiles = listCodexSessions(croot);
+    const selector = pos[1] || null;
+
+    if (selector) {
+      let file = codexFiles.find((f) => f.path === selector);
+      if (!file && /^[0-9a-f-]{6,}$/i.test(selector)) {
+        const matches = codexFiles.filter((f) =>
+          f.session.startsWith(selector.toLowerCase())
+        );
+        if (matches.length > 1) {
+          console.error(
+            `session id "${selector}" is ambiguous (${matches.length} matches)`
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (matches.length === 1) file = matches[0];
+      }
+      if (!file && existsSync(selector)) {
+        file = {
+          path: selector,
+          session: basename(selector).replace(/\.jsonl$/, ""),
+          size: 0,
+          mtimeMs: 0,
+          agent: "codex",
+        };
+      }
+      if (!file) {
+        console.error(style.red(`no Codex session matching "${selector}"`));
+        console.error(style.dim(`searched ${croot}`));
+        process.exitCode = 1;
+        return;
+      }
+      const env = await scanCodexSession(file);
+      if (json) {
+        console.log(JSON.stringify(codexToJson(env), null, 2));
+        return;
+      }
+      if (env.compacteds.length === 0) {
+        console.log("");
+        console.log(
+          style.green("  no compaction events found in this Codex session.")
+        );
+        console.log("");
+        return;
+      }
+      process.stdout.write(renderCodexReceipt(env));
+      return;
+    }
+
+    const entries = [];
+    for (const f of codexFiles) {
+      try {
+        const e = await scanCodexSession(f);
+        if (e.compacteds.length > 0) entries.push(e);
+      } catch {}
+    }
+    if (json) {
+      console.log(JSON.stringify(entries.map(codexToJson), null, 2));
+      return;
+    }
+    process.stdout.write(
+      renderCodexScan(entries, { root: croot, totalFiles: codexFiles.length })
+    );
     return;
   }
 
@@ -389,6 +469,16 @@ export async function main(argv) {
     process.stdout.write(
       renderScan(entries, { totalFiles: files.length, root, collapsedEvents })
     );
+    if (!rootExplicit) {
+      const codexFiles = listCodexSessions(CODEX_ROOT);
+      if (codexFiles.length > 0) {
+        console.log(
+          style.dim(
+            `  also found ${codexFiles.length} Codex session(s) \u2014 amnesia codex`
+          )
+        );
+      }
+    }
     return;
   }
 

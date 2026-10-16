@@ -48,6 +48,9 @@ npx amnesia-cli protect --write          write them into CLAUDE.md (marked secti
 npx amnesia-cli recover                  recover tool outputs persisted in this project's latest session
 npx amnesia-cli recover <session-id>     recover a specific session's persisted outputs
 
+npx amnesia-cli codex                    scan Codex CLI sessions for compaction
+npx amnesia-cli codex <session-id>       compaction receipt for a Codex session
+
 npx amnesia-cli install                  wire Claude Code hooks: auto-snapshot before
                                          every compaction, announce it after
 npx amnesia-cli uninstall                remove the hooks
@@ -94,6 +97,26 @@ every pointer in a session, copies the full outputs into
 to its tool call — with a paste-line so your agent can read them again.
 Outputs whose files were pruned from disk are listed as unrecoverable.
 
+### codex
+
+Codex CLI keeps its own session journal (`~/.codex/sessions/**/rollout-*.jsonl`)
+with a different compaction model: every compaction is journaled as a
+`compacted` event containing the replacement context, the pre-compaction token
+usage, and a window chain (`window_number`). `amnesia codex` scans those
+sessions and renders the same kind of receipt:
+
+```
+  event 1/4 2026-10-08 00:55 · window 1
+
+   context     237,614 → 38,816 tokens (window 258,400)   (83.7% dropped)
+   dead time   1m 35s
+   replaced    112 messages → 9 retained
+```
+
+`amnesia codex` lists every Codex session with compaction; `amnesia codex
+<session-id>` shows the per-event receipts. Synthetic injections (AGENTS.md
+blocks, app messages) are excluded from drop counts.
+
 ### install (automatic mode — recommended)
 
 `amnesia install` wires amnesia into Claude Code's own hook system:
@@ -120,13 +143,16 @@ originating session file where the history lives.
 Full decoded map of all five forgetting mechanisms, the boundary schema,
 persisted-output format, and hook events: **[docs/MECHANISMS.md](docs/MECHANISMS.md)**.
 
+- Also reads Codex CLI session journals (`amnesia codex`).
 - Reads only your local files. Nothing leaves your machine. No network, no deps.
 - Requires Node 18+.
-- Verified against Claude Code 2.1.x session formats (CLI and desktop app).
+- Verified against Claude Code 2.1.x session formats (CLI and desktop app)
+  and Codex CLI rollout journals (Oct 2026).
 
 ## Roadmap
 
-- [ ] Codex CLI / Gemini CLI / opencode session support
+- [x] Codex CLI session support (scan + receipts)
+- [ ] Gemini CLI / opencode session support
 - [x] PreCompact hook: auto-archive before every compaction fires
 - [x] Recovery of persisted tool outputs (oversized and cleared results)
 - [ ] Shareable receipt cards
