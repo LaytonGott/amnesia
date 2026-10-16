@@ -15,6 +15,12 @@ import { extractConstraints } from "./actions.mjs";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
+const HOOK_EVENTS = [
+  { event: "PreCompact", cmd: "precompact" },
+  { event: "PostCompact", cmd: "postcompact" },
+  { event: "UserPromptSubmit", cmd: "prompt" },
+];
+
 export function defaultSettingsPath() {
   const base = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   return join(base, "settings.json");
@@ -30,11 +36,11 @@ function amnesiaBinPath() {
 
 const q = (s) => (/\s/.test(s) ? `"${s}"` : s);
 
-function hookCommand(which) {
-  return `${q(process.execPath)} ${q(amnesiaBinPath())} hook ${which}`;
+function hookCommand(cmd) {
+  return `${q(process.execPath)} ${q(amnesiaBinPath())} hook ${cmd}`;
 }
 
-function isOurs(entry, which) {
+function isOurs(entry, cmd) {
   return (
     entry &&
     Array.isArray(entry.hooks) &&
@@ -44,7 +50,7 @@ function isOurs(entry, which) {
         h.type === "command" &&
         typeof h.command === "string" &&
         h.command.includes("amnesia") &&
-        h.command.includes(`hook ${which}`)
+        h.command.includes(`hook ${cmd}`)
     )
   );
 }
@@ -72,16 +78,17 @@ export function installHooks({ settingsPath, dryRun = false } = {}) {
     settings.hooks = {};
   }
   const results = [];
-  for (const ev of ["PreCompact", "PostCompact"]) {
-    const which = ev.toLowerCase();
-    const list = Array.isArray(settings.hooks[ev]) ? settings.hooks[ev] : [];
-    const kept = list.filter((e) => !isOurs(e, which));
-    const command = hookCommand(which);
-    settings.hooks[ev] = [
+  for (const { event, cmd } of HOOK_EVENTS) {
+    const list = Array.isArray(settings.hooks[event])
+      ? settings.hooks[event]
+      : [];
+    const kept = list.filter((e) => !isOurs(e, cmd));
+    const command = hookCommand(cmd);
+    settings.hooks[event] = [
       ...kept,
       { matcher: "", hooks: [{ type: "command", command, timeout: 60 }] },
     ];
-    results.push({ event: ev, command, replaced: list.length - kept.length });
+    results.push({ event, command, replaced: list.length - kept.length });
   }
   let backupPath = null;
   if (!dryRun) {
@@ -97,9 +104,12 @@ export function uninstallHooks({ settingsPath, dryRun = false } = {}) {
   const removed = [];
   const hooks =
     settings.hooks && typeof settings.hooks === "object" ? settings.hooks : {};
+  const cmdForEvent = (ev) =>
+    HOOK_EVENTS.find((h) => h.event === ev)?.cmd ?? ev.toLowerCase();
   for (const ev of Object.keys(hooks)) {
     if (!Array.isArray(hooks[ev])) continue;
-    const kept = hooks[ev].filter((e) => !isOurs(e, ev.toLowerCase()));
+    const cmd = cmdForEvent(ev);
+    const kept = hooks[ev].filter((e) => !isOurs(e, cmd));
     const n = hooks[ev].length - kept.length;
     if (n > 0) removed.push({ event: ev, count: n });
     if (kept.length > 0) hooks[ev] = kept;
@@ -194,6 +204,26 @@ export async function hookPrecompact() {
       md.push("");
     }
     writeFileSync(out, md.join("\n"), "utf8");
+
+    const sidecar = out.replace(/\.md$/, ".json");
+    writeFileSync(
+      sidecar,
+      JSON.stringify(
+        {
+          session,
+          cwd,
+          trigger: input.trigger || "unknown",
+          ts: new Date().toISOString(),
+          snapshot: out,
+          promptCount: history.prompts.length,
+          constraints: constraints.slice(0, 40).map((c) => c.text),
+        },
+        null,
+        2
+      ) + "\n",
+      "utf8"
+    );
+
     pruneSnapshots(dir, session.slice(0, 8), 10);
   } catch {}
 }
@@ -203,25 +233,107 @@ export async function hookPostcompact() {
     const input = await readStdinJson();
     const cwd = input.cwd || process.cwd();
     const session = input.session_id || "";
+    const prefix = session.slice(0, 8);
     const dir = join(cwd, ".amnesia", "snapshots");
-    let latest = null;
-    if (session && existsSync(dir)) {
-      const files = readdirSync(dir)
-        .filter((f) => f.startsWith(session.slice(0, 8)))
-        .sort();
-      if (files.length > 0) latest = join(dir, files[files.length - 1]);
+
+    let snapshot = null;
+    let constraints = [];
+    let promptCount = null;
+    if (prefix && existsSync(dir)) {
+      const files = readdirSync(dir).filter((f) => f.startsWith(prefix)).sort();
+      const latestJson = files.filter((f) => f.endsWith(".json")).pop();
+      if (latestJson) {
+        try {
+          const side = JSON.parse(readFileSync(join(dir, latestJson), "utf8"));
+          snapshot = side.snapshot || null;
+          constraints = Array.isArray(side.constraints) ? side.constraints : [];
+          promptCount = side.promptCount ?? null;
+        } catch {}
+      }
+      if (!snapshot) {
+        const latestMd = files.filter((f) => f.endsWith(".md")).pop();
+        if (latestMd) snapshot = join(dir, latestMd);
+      }
     }
+
+    if (prefix) {
+      const idir = join(cwd, ".amnesia", "inject");
+      mkdirSync(idir, { recursive: true });
+      writeFileSync(
+        join(idir, `${prefix}.json`),
+        JSON.stringify(
+          {
+            session,
+            snapshot,
+            constraints,
+            promptCount,
+            trigger: input.trigger || "unknown",
+            ts: new Date().toISOString(),
+          },
+          null,
+          2
+        ) + "\n",
+        "utf8"
+      );
+    }
+
     const trigger = input.trigger || "unknown";
     const parts = [`amnesia: compaction just fired (${trigger}).`];
-    if (latest) {
+    if (snapshot) {
       parts.push(
-        `Pre-compaction snapshot: ${latest} \u2014 if you need details from before the compaction, read that file.`
+        `Pre-compaction snapshot: ${snapshot} \u2014 recoverable context will be injected automatically on the next prompt.`
       );
     } else {
       parts.push(
-        "Run `amnesia restore` for the loss report; if you need earlier details, ask for them explicitly."
+        "Run `amnesia restore` for the loss report; recoverable context will be injected automatically on the next prompt."
       );
     }
     console.log(parts.join(" "));
+  } catch {}
+}
+
+export async function hookPrompt() {
+  try {
+    const input = await readStdinJson();
+    const cwd = input.cwd || process.cwd();
+    const session = input.session_id || "";
+    if (!session) return;
+    const marker = join(
+      cwd,
+      ".amnesia",
+      "inject",
+      `${session.slice(0, 8)}.json`
+    );
+    if (!existsSync(marker)) return;
+
+    let m = {};
+    try {
+      m = JSON.parse(readFileSync(marker, "utf8"));
+    } catch {}
+    rmSync(marker, { force: true });
+
+    const lines = [];
+    lines.push(
+      "[amnesia] Your context was just compacted \u2014 earlier messages were replaced by a summary."
+    );
+    if (Array.isArray(m.constraints) && m.constraints.length > 0) {
+      lines.push(
+        "Rules from before the compaction that must keep applying:"
+      );
+      for (const c of m.constraints.slice(0, 20)) lines.push(`- ${c}`);
+    }
+    if (m.snapshot) {
+      lines.push(`Full pre-compaction snapshot: ${m.snapshot}`);
+    }
+    const additionalContext = lines.join("\n");
+
+    console.log(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext,
+        },
+      })
+    );
   } catch {}
 }

@@ -14,6 +14,7 @@ import {
   uninstallHooks,
   hookPrecompact,
   hookPostcompact,
+  hookPrompt,
   defaultSettingsPath,
 } from "./hooks.mjs";
 import {
@@ -175,7 +176,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.6.0");
+      console.log("amnesia 0.7.0");
       return;
     } else pos.push(a);
   }
@@ -254,7 +255,11 @@ export async function main(argv) {
       await hookPostcompact();
       return;
     }
-    console.error("usage: amnesia hook precompact|postcompact");
+    if (which === "prompt") {
+      await hookPrompt();
+      return;
+    }
+    console.error("usage: amnesia hook precompact|postcompact|prompt");
     process.exitCode = 1;
     return;
   }

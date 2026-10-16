@@ -129,14 +129,16 @@ the point.
 
 ### install (automatic mode — recommended)
 
-`amnesia install` wires amnesia into Claude Code's own hook system:
+`amnesia install` wires amnesia into Claude Code's own hook system. From then
+on, forgetting heals itself:
 
 - **PreCompact** — before the agent forgets anything, the full session is
-  archived to `.amnesia/snapshots/<session>-precompact.md`, including a
-  "Constraints in this session" section. This happens even if you never
-  think about it again.
-- **PostCompact** — after compaction fires, a breadcrumb is emitted pointing
-  at the snapshot, so you (or the agent) know where the missing context went.
+  archived to `.amnesia/snapshots/` and its constraints are extracted.
+- **PostCompact** — after compaction fires, a recovery notice is queued.
+- **UserPromptSubmit** — on your very next prompt, the queued notice is
+  injected straight into the live session through the hook context channel:
+  the dropped rules plus the snapshot path. The agent gets its constraints
+  back without you doing anything.
 
 Your `settings.json` is backed up before any change, only the amnesia hook
 entries are touched, and `amnesia uninstall` removes them cleanly.

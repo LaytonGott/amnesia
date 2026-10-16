@@ -36,17 +36,35 @@ const fixtureInput = (cwd, event) =>
     hook_event_name: event,
   });
 
-test("install merges hooks into settings, preserving existing keys", () => {
+const constraintsInput = (cwd) =>
+  JSON.stringify({
+    session_id: "dddddddd-0000-0000-0000-000000000001",
+    transcript_path: join(
+      ROOT,
+      "projC",
+      "dddddddd-0000-0000-0000-000000000001.jsonl"
+    ),
+    cwd,
+    trigger: "auto",
+    hook_event_name: "PreCompact",
+  });
+
+test("install registers all three hooks, preserving existing keys", () => {
   const s = join(tmp, "settings-merge.json");
   writeFileSync(s, JSON.stringify({ model: "opus" }, null, 2));
   const out = run(["install", "--settings", s]);
   assert.ok(out.includes("PreCompact"));
+  assert.ok(out.includes("UserPromptSubmit"));
   const j = JSON.parse(readFileSync(s, "utf8"));
   assert.equal(j.model, "opus");
   assert.equal(j.hooks.PreCompact.length, 1);
   assert.equal(j.hooks.PostCompact.length, 1);
+  assert.equal(j.hooks.UserPromptSubmit.length, 1);
   assert.ok(
     j.hooks.PreCompact[0].hooks[0].command.includes("hook precompact")
+  );
+  assert.ok(
+    j.hooks.UserPromptSubmit[0].hooks[0].command.includes("hook prompt")
   );
 });
 
@@ -57,6 +75,7 @@ test("install is idempotent", () => {
   const j = JSON.parse(readFileSync(s, "utf8"));
   assert.equal(j.hooks.PreCompact.length, 1);
   assert.equal(j.hooks.PostCompact.length, 1);
+  assert.equal(j.hooks.UserPromptSubmit.length, 1);
 });
 
 test("install dry-run writes nothing", () => {
@@ -83,21 +102,26 @@ test("uninstall removes only amnesia hooks", () => {
   assert.ok(j.hooks.PreToolUse);
   assert.equal(j.hooks.PreCompact, undefined);
   assert.equal(j.hooks.PostCompact, undefined);
+  assert.equal(j.hooks.UserPromptSubmit, undefined);
 });
 
-test("precompact hook archives a snapshot from stdin", () => {
+test("precompact hook archives snapshot + sidecar from stdin", () => {
   const cwd = join(tmp, "proj-hook");
   run(["hook", "precompact"], { input: fixtureInput(cwd, "PreCompact") });
   const dir = join(cwd, ".amnesia", "snapshots");
   assert.ok(existsSync(dir));
   const files = readdirSync(dir);
-  assert.equal(files.length, 1);
-  const md = readFileSync(join(dir, files[0]), "utf8");
+  assert.equal(files.filter((f) => f.endsWith(".md")).length, 1);
+  assert.equal(files.filter((f) => f.endsWith(".json")).length, 1);
+  const md = readFileSync(
+    join(dir, files.find((f) => f.endsWith(".md"))),
+    "utf8"
+  );
   assert.ok(md.includes("help me fix the auth bug in server.js"));
   assert.ok(md.includes("# Pre-compaction snapshot"));
 });
 
-test("postcompact hook prints a breadcrumb with the snapshot path", () => {
+test("postcompact hook queues a recovery marker", () => {
   const cwd = join(tmp, "proj-hook2");
   run(["hook", "precompact"], { input: fixtureInput(cwd, "PreCompact") });
   const input = JSON.stringify({
@@ -108,11 +132,63 @@ test("postcompact hook prints a breadcrumb with the snapshot path", () => {
   });
   const out = run(["hook", "postcompact"], { input });
   assert.ok(out.includes("compaction just fired"));
-  assert.ok(out.includes("snapshot"));
+  const marker = join(cwd, ".amnesia", "inject", "aaaaaaaa.json");
+  assert.ok(existsSync(marker));
+  const m = JSON.parse(readFileSync(marker, "utf8"));
+  assert.ok(m.snapshot);
+});
+
+test("prompt hook injects recovered constraints once, then clears", () => {
+  const cwd = join(tmp, "proj-hook3");
+  run(["hook", "precompact"], { input: constraintsInput(cwd) });
+  run(["hook", "postcompact"], {
+    input: JSON.stringify({
+      session_id: "dddddddd-0000-0000-0000-000000000001",
+      cwd,
+      trigger: "auto",
+      hook_event_name: "PostCompact",
+    }),
+  });
+  const promptInput = JSON.stringify({
+    session_id: "dddddddd-0000-0000-0000-000000000001",
+    cwd,
+    prompt: "continue",
+    hook_event_name: "UserPromptSubmit",
+  });
+  const out = run(["hook", "prompt"], { input: promptInput });
+  const j = JSON.parse(out);
+  assert.equal(j.hookSpecificOutput.hookEventName, "UserPromptSubmit");
+  assert.ok(
+    j.hookSpecificOutput.additionalContext.includes(
+      "Never import the lobby module"
+    )
+  );
+  assert.ok(j.hookSpecificOutput.additionalContext.includes("[amnesia]"));
+  assert.equal(
+    existsSync(join(cwd, ".amnesia", "inject", "dddddddd.json")),
+    false
+  );
+  const second = run(["hook", "prompt"], { input: promptInput });
+  assert.equal(second, "");
+});
+
+test("prompt hook is silent with no pending injection", () => {
+  const cwd = join(tmp, "proj-hook4");
+  const out = run(["hook", "prompt"], {
+    input: JSON.stringify({
+      session_id: "eeeeeeee-0000-0000-0000-000000000001",
+      cwd,
+      prompt: "hi",
+      hook_event_name: "UserPromptSubmit",
+    }),
+  });
+  assert.equal(out, "");
 });
 
 test("hooks never fail on garbage input", () => {
   const out = run(["hook", "precompact"], { input: "not json at all" });
   assert.equal(out, "");
   run(["hook", "postcompact"], { input: "" });
+  const p = run(["hook", "prompt"], { input: "" });
+  assert.equal(p, "");
 });
