@@ -158,6 +158,9 @@ persisted-output format, and hook events: **[docs/MECHANISMS.md](docs/MECHANISMS
 - Also reads Codex CLI session journals (`amnesia codex`).
 - Reads only your local files. Nothing leaves your machine. No network, no deps.
 - Requires Node 18+.
+- Every scan reports unrecognized journal entries, so upstream format drift is
+  loud instead of silent. To verify amnesia with your own agent:
+  **[docs/VERIFICATION.md](docs/VERIFICATION.md)**.
 - Verified against Claude Code 2.1.x session formats (CLI and desktop app)
   and Codex CLI rollout journals (Oct 2026).
 

@@ -66,13 +66,48 @@ function textOf(content) {
 const SYNTHETIC_RE =
   /^(#\s*AGENTS\.md|<external_|<user_instructions|<environment_context)/i;
 
+const KNOWN_LINE_TYPES = new Set([
+  "session_meta",
+  "event_msg",
+  "response_item",
+  "compacted",
+  "world_state",
+  "turn_context",
+  "token_usage_record",
+]);
+
+const KNOWN_PAYLOADS = {
+  event_msg: new Set([
+    "task_started",
+    "task_complete",
+    "item_completed",
+    "token_count",
+    "thread_settings_applied",
+    "turn_aborted",
+  ]),
+  response_item: new Set([
+    "message",
+    "reasoning",
+    "custom_tool_call",
+    "custom_tool_call_output",
+    "function_call",
+    "function_call_output",
+  ]),
+};
+
 export async function scanCodexSession(file) {
   const messages = [];
   const compacteds = [];
   const tokenCounts = [];
+  const unknownMap = new Map();
   let cwd = null;
   let contextWindow = null;
   let lines = 0;
+
+  const bump = (kind, name) => {
+    const k = `${kind}\u0000${name}`;
+    unknownMap.set(k, (unknownMap.get(k) || 0) + 1);
+  };
 
   const rl = readline.createInterface({
     input: createReadStream(file.path, "utf8"),
@@ -82,31 +117,32 @@ export async function scanCodexSession(file) {
   for await (const line of rl) {
     lines++;
     if (!line || line[0] !== "{") continue;
-    if (
-      !(
-        line.includes('"response_item"') ||
-        line.includes('"compacted"') ||
-        line.includes('"token_count"') ||
-        line.includes('"session_meta"') ||
-        line.includes('"turn_context"') ||
-        line.includes('"item_completed"')
-      )
-    ) {
-      continue;
-    }
     let o;
     try {
       o = JSON.parse(line);
     } catch {
+      bump("unparseable", "line");
       continue;
     }
 
-    if (o.type === "session_meta" || o.type === "turn_context") {
+    const t = o.type;
+    if (typeof t !== "string" || !KNOWN_LINE_TYPES.has(t)) {
+      bump("line", typeof t === "string" ? t : "(untyped)");
+      continue;
+    }
+    const knownPayloads = KNOWN_PAYLOADS[t];
+    if (knownPayloads && o.payload && typeof o.payload.type === "string") {
+      if (!knownPayloads.has(o.payload.type)) {
+        bump(t, o.payload.type);
+      }
+    }
+
+    if (t === "session_meta" || t === "turn_context") {
       if (!cwd && o.payload && o.payload.cwd) cwd = o.payload.cwd;
       continue;
     }
 
-    if (o.type === "response_item") {
+    if (t === "response_item") {
       const p = o.payload;
       if (!p) continue;
       if (p.type === "message") {
@@ -132,7 +168,7 @@ export async function scanCodexSession(file) {
       continue;
     }
 
-    if (o.type === "compacted") {
+    if (t === "compacted") {
       const p = o.payload || {};
       const rh = Array.isArray(p.replacement_history)
         ? p.replacement_history
@@ -156,6 +192,8 @@ export async function scanCodexSession(file) {
         durationMs: null,
         postTokens: null,
         beforeCount: 0,
+        beforeMessages: 0,
+        beforeOutputs: 0,
         keptCount: 0,
         droppedCount: 0,
         droppedUsers: [],
@@ -163,7 +201,7 @@ export async function scanCodexSession(file) {
       continue;
     }
 
-    if (o.type === "event_msg") {
+    if (t === "event_msg") {
       const p = o.payload || {};
       if (p.type === "item_completed" && p.item?.type === "ContextCompaction") {
         const last = compacteds.at(-1);
@@ -218,7 +256,33 @@ export async function scanCodexSession(file) {
     );
   }
 
-  return { file, lines, cwd, contextWindow, compacteds, messages, tokenCounts };
+  const unknowns = [...unknownMap.entries()].map(([k, count]) => {
+    const i = k.indexOf("\u0000");
+    return { kind: k.slice(0, i), name: k.slice(i + 1), count };
+  });
+
+  return {
+    file,
+    lines,
+    cwd,
+    contextWindow,
+    compacteds,
+    messages,
+    tokenCounts,
+    unknowns,
+  };
+}
+
+export function formatUnknowns(unknowns, max = 4) {
+  const parts = unknowns.map((u) =>
+    u.kind === "unparseable"
+      ? `unparseable \u00d7${u.count}`
+      : `${u.kind}:${u.name} \u00d7${u.count}`
+  );
+  const shown = parts.slice(0, max);
+  return (
+    shown.join(", ") + (parts.length > max ? `, \u2026 +${parts.length - max}` : "")
+  );
 }
 
 export function codexToJson(env) {
@@ -228,6 +292,7 @@ export function codexToJson(env) {
     path: env.file.path,
     cwd: env.cwd,
     contextWindow: env.contextWindow,
+    unknowns: env.unknowns,
     compacteds: env.compacteds.map((c) => ({
       timestamp: c.timestamp,
       windowNumber: c.windowNumber,
@@ -244,7 +309,8 @@ export function codexToJson(env) {
         ts: m.ts,
         text: m.text.slice(0, 500),
       })),
-      retainedPreview: c.retained.find((r) => r.role === "user")?.text?.slice(0, 300) || null,
+      retainedPreview:
+        c.retained.find((r) => r.role === "user")?.text?.slice(0, 300) || null,
     })),
   };
 }
@@ -262,6 +328,18 @@ export function renderCodexScan(entries, { root, totalFiles }) {
     })
     .sort((a, b) => b.dropped - a.dropped);
 
+  const aggMap = new Map();
+  for (const e of entries) {
+    for (const u of e.unknowns || []) {
+      const k = `${u.kind}\u0000${u.name}`;
+      aggMap.set(k, (aggMap.get(k) || 0) + u.count);
+    }
+  }
+  const aggUnknowns = [...aggMap.entries()].map(([k, count]) => {
+    const i = k.indexOf("\u0000");
+    return { kind: k.slice(0, i), name: k.slice(i + 1), count };
+  });
+
   const out = [];
   const totalDropped = rows.reduce((s, x) => s + x.dropped, 0);
   out.push("");
@@ -276,6 +354,15 @@ export function renderCodexScan(entries, { root, totalFiles }) {
   out.push("");
   if (rows.length === 0) {
     out.push(style.green("  no compaction events found."));
+    if (aggUnknowns.length > 0) {
+      out.push(
+        style.dim(
+          `  note: unrecognized journal entries (${formatUnknowns(
+            aggUnknowns
+          )}) \u2014 amnesia may need an update.`
+        )
+      );
+    }
     out.push("");
     return out.join("\n");
   }
@@ -300,6 +387,15 @@ export function renderCodexScan(entries, { root, totalFiles }) {
     );
   }
   out.push("");
+  if (aggUnknowns.length > 0) {
+    out.push(
+      style.dim(
+        `  note: unrecognized journal entries (${formatUnknowns(
+          aggUnknowns
+        )}) \u2014 amnesia may need an update.`
+      )
+    );
+  }
   out.push(style.dim("  receipt: ") + "amnesia codex <session-id>");
   out.push("");
   return out.join("\n");
@@ -375,6 +471,15 @@ export function renderCodexReceipt(env) {
   });
 
   out.push(style.dim("  " + "\u2500".repeat(64)));
+  if (env.unknowns && env.unknowns.length > 0) {
+    out.push(
+      style.dim(
+        `  note: unrecognized journal entries (${formatUnknowns(
+          env.unknowns
+        )}) \u2014 amnesia may need an update.`
+      )
+    );
+  }
   out.push(
     style.dim("  made with ") +
       style.bold("amnesia") +
