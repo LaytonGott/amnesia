@@ -1,0 +1,37 @@
+{
+  "name": "amnesia-cli",
+  "version": "0.1.0",
+  "description": "See what your AI coding agent forgot: compaction receipts for Claude Code sessions.",
+  "type": "module",
+  "bin": {
+    "amnesia": "bin/amnesia.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/amnesia.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "compaction",
+    "context",
+    "ai-agents",
+    "llm"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LaytonGott/amnesia.git"
+  },
+  "homepage": "https://github.com/LaytonGott/amnesia",
+  "bugs": {
+    "url": "https://github.com/LaytonGott/amnesia/issues"
+  }
+}
