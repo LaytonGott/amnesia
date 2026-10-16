@@ -156,3 +156,91 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
 
   return { file, lines, boundaries, userSeen, assistantSeen, toolResultsSeen };
 }
+
+export function encodeProjectPath(absPath) {
+  return String(absPath).replace(/[^A-Za-z0-9]/g, "-");
+}
+
+export async function collectHistory(file) {
+  const prompts = [];
+  const boundaries = [];
+  let lines = 0;
+
+  const rl = readline.createInterface({
+    input: createReadStream(file.path, "utf8"),
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
+    lines++;
+    if (!line) continue;
+
+    if (line.includes("compact_boundary")) {
+      try {
+        const o = JSON.parse(line);
+        if (o && o.type === "system" && o.subtype === "compact_boundary") {
+          const md = o.compactMetadata || o.compact_metadata || {};
+          const uuids = Array.isArray(md.preservedMessages?.uuids)
+            ? md.preservedMessages.uuids
+            : [];
+          boundaries.push({
+            lineNo: lines,
+            timestamp: o.timestamp || null,
+            trigger: md.trigger || "unknown",
+            preTokens: md.preTokens ?? null,
+            postTokens: md.postTokens ?? null,
+            durationMs: md.durationMs ?? null,
+            cumulativeDroppedTokens: md.cumulativeDroppedTokens ?? null,
+            preservedUuids: new Set(uuids),
+            summary: null,
+          });
+        }
+      } catch {}
+      continue;
+    }
+
+    const maybeUser =
+      line.includes('"type":"user"') || line.includes('"type": "user"');
+    if (!maybeUser) continue;
+
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!o || o.type !== "user") continue;
+    const content = o.message?.content;
+    if (Array.isArray(content) && content.some((b) => b && b.type === "tool_result")) {
+      continue;
+    }
+    if (o.isMeta === true) continue;
+    if (o.isCompactSummary === true) {
+      const last = boundaries.at(-1);
+      if (last && last.summary == null) last.summary = extractText(content) || "";
+      continue;
+    }
+    const text = extractText(content);
+    if (text && text.trim()) {
+      prompts.push({
+        lineNo: lines,
+        timestamp: o.timestamp || null,
+        uuid: o.uuid || null,
+        text: text.trim(),
+      });
+    }
+  }
+
+  return { file, lines, prompts, boundaries };
+}
+
+export function droppedForBoundary(history, index) {
+  const b = history.boundaries[index];
+  return history.prompts.filter(
+    (p) => p.lineNo < b.lineNo && !b.preservedUuids.has(p.uuid)
+  );
+}
+
+export function eventKeyOf(b) {
+  return `${b.timestamp}|${b.preTokens}|${b.postTokens}`;
+}
