@@ -32,6 +32,8 @@ test("scanCodexSession parses the compaction window", async () => {
   assert.equal(c.durationMs, 94000);
   assert.equal(c.keptCount, 2);
   assert.equal(c.beforeCount, 4);
+  assert.equal(c.beforeMessages, 3);
+  assert.equal(c.beforeOutputs, 1);
   assert.equal(c.droppedUsers.length, 1);
   assert.ok(c.droppedUsers[0].text.includes("staging bucket"));
 });
@@ -41,6 +43,8 @@ test("codex receipt shows tokens, dead time and dropped prompts", () => {
   assert.ok(out.includes("150,000"));
   assert.ok(out.includes("30,000"));
   assert.ok(out.includes("1m 34s"));
+  assert.ok(out.includes("4 context items (3 messages, 1 tool outputs)"));
+  assert.ok(out.includes("1 human prompt"));
   assert.ok(out.includes("Never delete the staging bucket"));
   assert.ok(out.includes("Build the exporter"));
 });
@@ -57,5 +61,7 @@ test("codex --json is valid machine-readable output", () => {
   assert.equal(j.agent, "codex");
   assert.equal(j.compacteds.length, 1);
   assert.equal(j.compacteds[0].preTokens, 150000);
+  assert.equal(j.compacteds[0].beforeMessages, 3);
+  assert.equal(j.compacteds[0].beforeOutputs, 1);
   assert.equal(j.compacteds[0].droppedUsers.length, 1);
 });

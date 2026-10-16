@@ -200,10 +200,14 @@ export async function scanCodexSession(file) {
 
     const retainedIds = new Set(c.retained.map((r) => r.id).filter(Boolean));
     const before = messages.filter((m) => m.lineNo < c.lineNo);
+    const beforeMessages = before.filter((m) => m.role !== "_output").length;
+    const beforeOutputs = before.filter((m) => m.role === "_output").length;
     const keptById = before.filter((m) => m.id && retainedIds.has(m.id)).length;
     const keptAssumed =
       keptById > 0 ? keptById : Math.min(c.retained.length, before.length);
     c.beforeCount = before.length;
+    c.beforeMessages = beforeMessages;
+    c.beforeOutputs = beforeOutputs;
     c.keptCount = c.retained.length;
     c.droppedCount = Math.max(0, c.beforeCount - keptAssumed);
     c.droppedUsers = before.filter(
@@ -231,6 +235,8 @@ export function codexToJson(env) {
       postTokens: c.postTokens,
       durationMs: c.durationMs,
       beforeCount: c.beforeCount,
+      beforeMessages: c.beforeMessages,
+      beforeOutputs: c.beforeOutputs,
       keptCount: c.keptCount,
       droppedCount: c.droppedCount,
       droppedUsers: c.droppedUsers.map((m) => ({
@@ -328,11 +334,16 @@ export function renderCodexReceipt(env) {
     );
     out.push(`   dead time   ${fmtDuration(c.durationMs)}`);
     out.push(
-      `   replaced    ${fmtTokens(c.beforeCount)} messages \u2192 ${fmtTokens(
+      `   replaced    ${fmtTokens(c.beforeCount)} context items (${fmtTokens(
+        c.beforeMessages
+      )} messages, ${fmtTokens(c.beforeOutputs)} tool outputs) \u2192 ${fmtTokens(
         c.keptCount
-      )} retained (${fmtTokens(c.droppedUsers.length)} prompt${
+      )} retained`
+    );
+    out.push(
+      `   dropped     ${fmtTokens(c.droppedUsers.length)} human prompt${
         c.droppedUsers.length === 1 ? "" : "s"
-      } dropped)`
+      }`
     );
     const preview = c.retained.find((r) => r.role === "user")?.text;
     if (preview) {
