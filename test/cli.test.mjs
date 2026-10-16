@@ -18,9 +18,9 @@ const run = (args) =>
 
 test("scan lists compacted sessions with totals", () => {
   const out = run(["--root", ROOT]);
-  assert.ok(out.includes("5 sessions"));
-  assert.ok(out.includes("3 with compaction"));
-  assert.ok(out.includes("195,000"));
+  assert.ok(out.includes("6 sessions"));
+  assert.ok(out.includes("4 with compaction"));
+  assert.ok(out.includes("465,000"));
 });
 
 test("receipt follows a resume copy to its origin session", () => {
@@ -110,4 +110,14 @@ test("version prints the package version", () => {
     readFileSync(join(HERE, "..", "package.json"), "utf8")
   );
   assert.ok(out.includes(pkg.version));
+});
+
+test("receipt labels precomputed compactions and UTC times", () => {
+  const out = run([
+    "eeeeeeee-0000-0000-0000-000000000001",
+    "--root",
+    ROOT,
+  ]);
+  assert.ok(out.includes("(precomputed)"));
+  assert.ok(out.includes(" UTC "));
 });

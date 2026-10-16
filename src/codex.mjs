@@ -413,7 +413,7 @@ export function renderCodexReceipt(env) {
     out.push(style.dim("  " + "\u2500".repeat(64)));
     out.push(
       `  ${style.bold(`event ${i + 1}/${compacteds.length}`)} ${style.dim(
-        `${localTime(c.timestamp)} \u00b7 window ${c.windowNumber ?? "?"}`
+        `${localTime(c.timestamp)} UTC \u00b7 window ${c.windowNumber ?? "?"}`
       )}`
     );
     out.push("");

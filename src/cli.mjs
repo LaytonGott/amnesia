@@ -75,6 +75,7 @@ function toJson(env) {
       postTokens: b.postTokens,
       durationMs: b.durationMs,
       cumulativeDroppedTokens: b.cumulativeDroppedTokens,
+      precomputed: b.precomputed ?? false,
       preservedCount: b.preservedCount,
       originSession: b.originSession ?? null,
       covered: {
@@ -176,7 +177,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.8.0");
+      console.log("amnesia 0.8.1");
       return;
     } else pos.push(a);
   }

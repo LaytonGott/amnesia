@@ -1,0 +1,9 @@
+{"type":"user","message":{"role":"user","content":"first prompt"},"uuid":"p1","timestamp":"2026-03-01T10:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok one"}]},"uuid":"p2","timestamp":"2026-03-01T10:00:10.000Z"}
+{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"auto","preTokens":100000,"postTokens":10000,"durationMs":40000,"preservedMessages":{"uuids":["p2"]}},"uuid":"p3","timestamp":"2026-03-01T10:01:00.000Z"}
+{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued. Summary: one"},"uuid":"p4","timestamp":"2026-03-01T10:01:01.000Z"}
+{"type":"user","message":{"role":"user","content":"second prompt"},"uuid":"p5","timestamp":"2026-03-01T10:02:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok two"}]},"uuid":"p6","timestamp":"2026-03-01T10:02:10.000Z"}
+{"type":"system","subtype":"compact_boundary","compactMetadata":{"trigger":"manual","preTokens":200000,"postTokens":20000,"durationMs":3,"precomputed":true,"preservedMessages":{"uuids":[]}},"uuid":"p7","timestamp":"2026-03-01T10:03:00.000Z"}
+{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued. Summary: two"},"uuid":"p8","timestamp":"2026-03-01T10:03:01.000Z"}
+{"type":"user","message":{"role":"user","content":"third prompt"},"uuid":"p9","timestamp":"2026-03-01T10:04:00.000Z"}

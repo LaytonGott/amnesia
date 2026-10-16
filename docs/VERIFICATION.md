@@ -82,9 +82,15 @@ session files, then check it against ground truth.
 
 - Token counts must match exactly (they are recorded, not estimated).
 - Dead time may differ by rounding (±0.5s display).
-- Message counts follow documented conventions: tool outputs are counted
-  separately from messages; synthetic injections (AGENTS.md headers, app
-  messages, environment context) are excluded from "human prompts dropped".
+- `replaced` counts only what that specific compaction removed from context:
+  the prior compaction's retained set plus messages since it, minus what this
+  one preserved — not the whole file. In a 16-compaction session, event 16
+  shows what event 16 replaced, not the session's cumulative history.
+- Tool results are counted separately from messages and refer to user-side
+  result-carrying messages.
+- Synthetic injections (AGENTS.md headers, app messages, environment context)
+  are excluded from "human prompts dropped".
+- All displayed times are UTC.
 - `"post"` tokens are the first *positive* usage report after the boundary —
   zero reports are skipped on purpose (verify against the file).
 

@@ -48,9 +48,15 @@ Everything above is written into your local session transcript
 
 - `preTokens → postTokens` is exactly how much was in context before, and how
   little remained after.
-- `durationMs` is how long you waited while it happened.
-- `preservedMessages.uuids` is the exact set of messages kept **verbatim** —
-  everything else before the boundary was replaced by the summary.
+- `durationMs` is how long you waited while it happened. Precomputed
+  compactions (background-built summaries) show swap time only — often a few
+  milliseconds.
+- `preservedMessages.uuids` is the exact set of messages kept **verbatim**
+  through that compaction — the rest of the context it covered was replaced by
+  the summary. (The file keeps everything; this list tells you what survived
+  *in context*. In multi-compaction sessions, what a given compaction actually
+  replaced is the previous retained set plus the messages since the previous
+  boundary, minus what it preserved.)
 - `cumulativeDroppedTokens` accumulates across a session (present in newer
   builds; older sessions may omit it).
 

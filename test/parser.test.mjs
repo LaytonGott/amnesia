@@ -28,6 +28,7 @@ const A1 = "projA/aaaaaaaa-0000-0000-0000-000000000001.jsonl";
 const B1 = "projA/bbbbbbbb-0000-0000-0000-000000000001.jsonl";
 const C1 = "projB/cccccccc-0000-0000-0000-000000000001.jsonl";
 const D1 = "projC/dddddddd-0000-0000-0000-000000000001.jsonl";
+const E1 = "projE/eeeeeeee-0000-0000-0000-000000000001.jsonl";
 
 test("encodeProjectPath matches Claude Code folder encoding", () => {
   assert.equal(
@@ -38,7 +39,7 @@ test("encodeProjectPath matches Claude Code folder encoding", () => {
 
 test("listSessionFiles finds all fixture sessions", () => {
   const files = listSessionFiles(ROOT);
-  assert.equal(files.length, 5);
+  assert.equal(files.length, 6);
 });
 
 test("scanFile parses a compact boundary with full metadata", async () => {
@@ -51,8 +52,8 @@ test("scanFile parses a compact boundary with full metadata", async () => {
   assert.equal(b.durationMs, 95000);
   assert.equal(b.preservedCount, 2);
   assert.equal(b.cumulativeDroppedTokens, 112000);
-  assert.equal(b.coveredUsers, 2);
-  assert.equal(b.coveredAssistants, 2);
+  assert.equal(b.coveredUsers, 1);
+  assert.equal(b.coveredAssistants, 1);
   assert.equal(b.coveredToolResults, 1);
   assert.ok(b.summary.includes("Primary Request and Intent"));
 });
@@ -98,4 +99,29 @@ test("extractConstraints finds constraint sentences", async () => {
 
 test("missing root yields an empty listing", () => {
   assert.equal(listSessionFiles(join(ROOT, "..", "does-not-exist")).length, 0);
+});
+
+test("multi-boundary sessions count only the context each compaction replaced", async () => {
+  const r = await scanFile(mk(E1), { withPreviews: true });
+  assert.equal(r.boundaries.length, 2);
+  const [b1, b2] = r.boundaries;
+  assert.equal(b1.coveredUsers, 1);
+  assert.equal(b1.coveredAssistants, 0);
+  assert.equal(b1.previews.length, 1);
+  assert.ok(b1.previews[0].text.includes("first prompt"));
+  assert.equal(b1.precomputed, false);
+  assert.equal(b2.coveredUsers, 1);
+  assert.equal(b2.coveredAssistants, 2);
+  assert.equal(b2.previews.length, 1);
+  assert.ok(b2.previews[0].text.includes("second prompt"));
+  assert.equal(b2.precomputed, true);
+});
+
+test("restore drops only per-boundary context", async () => {
+  const h = await collectHistory(mk(E1));
+  assert.equal(h.prompts.length, 3);
+  assert.equal(droppedForBoundary(h, 0).length, 1);
+  const d2 = droppedForBoundary(h, 1);
+  assert.equal(d2.length, 1);
+  assert.ok(d2[0].text.includes("second prompt"));
 });

@@ -53,10 +53,9 @@ function extractText(content) {
 
 export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } = {}) {
   const boundaries = [];
-  const previews = [];
-  let userSeen = 0;
-  let assistantSeen = 0;
-  let toolResultsSeen = 0;
+  const users = [];
+  const assistants = [];
+  const toolBatches = [];
   let current = null;
   let lines = 0;
 
@@ -78,17 +77,19 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
             ? md.preservedMessages.uuids
             : [];
           current = {
+            lineNo: lines,
             timestamp: o.timestamp || null,
             trigger: md.trigger || "unknown",
             preTokens: md.preTokens ?? null,
             postTokens: md.postTokens ?? null,
             durationMs: md.durationMs ?? null,
             cumulativeDroppedTokens: md.cumulativeDroppedTokens ?? null,
+            precomputed: md.precomputed === true,
             preservedCount: uuids.length || null,
             preservedUuids: new Set(uuids),
-            coveredUsers: userSeen,
-            coveredAssistants: assistantSeen,
-            coveredToolResults: toolResultsSeen,
+            coveredUsers: 0,
+            coveredAssistants: 0,
+            coveredToolResults: 0,
             summary: null,
             previews: [],
           };
@@ -112,7 +113,7 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
       const isToolResult =
         Array.isArray(content) && content.some((b) => b && b.type === "tool_result");
       if (isToolResult) {
-        toolResultsSeen++;
+        toolBatches.push({ lineNo: lines, uuid: o.uuid || null });
         continue;
       }
       if (o.isMeta === true) continue;
@@ -123,38 +124,60 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
         continue;
       }
       const text = extractText(content);
-      userSeen++;
-      if (withPreviews && text && text.trim() && previews.length < 64) {
-        previews.push({
-          n: userSeen,
-          timestamp: o.timestamp || null,
-          uuid: o.uuid || null,
-          text: text.trim(),
-        });
-      }
+      users.push({
+        lineNo: lines,
+        timestamp: o.timestamp || null,
+        uuid: o.uuid || null,
+        text: (text || "").trim(),
+      });
       continue;
     }
 
     if (line.includes('"type":"assistant"') || line.includes('"type": "assistant"')) {
-      assistantSeen++;
+      let uuid = null;
+      try {
+        uuid = JSON.parse(line)?.uuid || null;
+      } catch {}
+      assistants.push({ lineNo: lines, uuid });
       continue;
     }
   }
 
-  if (withPreviews) {
-    for (const b of boundaries) {
-      b.previews = previews
+  for (let i = 0; i < boundaries.length; i++) {
+    const b = boundaries[i];
+    const prev = i > 0 ? boundaries[i - 1] : null;
+    const prevPres = prev ? prev.preservedUuids : null;
+    const curPres = b.preservedUuids;
+    const dropped = (arr) =>
+      arr
         .filter(
-          (p) =>
-            p.n <= b.coveredUsers &&
-            !(b.preservedUuids && b.preservedUuids.has(p.uuid))
+          (m) =>
+            ((!prev || m.lineNo > prev.lineNo) && m.lineNo < b.lineNo) ||
+            (prevPres && m.uuid && prevPres.has(m.uuid))
         )
-        .slice(0, maxPreviews);
+        .filter((m) => !(m.uuid && curPres.has(m.uuid)));
+    const droppedUsers = dropped(users);
+    b.coveredUsers = droppedUsers.length;
+    b.coveredAssistants = dropped(assistants).length;
+    b.coveredToolResults = dropped(toolBatches).length;
+    if (withPreviews) {
+      b.previews = droppedUsers
+        .slice()
+        .sort((a, z) => a.lineNo - z.lineNo)
+        .slice(0, maxPreviews)
+        .map((u) => ({ timestamp: u.timestamp, uuid: u.uuid, text: u.text }));
     }
   }
   for (const b of boundaries) b.preservedUuids = undefined;
 
-  return { file, lines, boundaries, userSeen, assistantSeen, toolResultsSeen };
+  return {
+    file,
+    lines,
+    boundaries,
+    userSeen: users.length,
+    assistantSeen: assistants.length,
+    toolResultsSeen: toolBatches.length,
+  };
 }
 
 export function encodeProjectPath(absPath) {
@@ -236,8 +259,13 @@ export async function collectHistory(file) {
 
 export function droppedForBoundary(history, index) {
   const b = history.boundaries[index];
+  const prev = index > 0 ? history.boundaries[index - 1] : null;
+  const prevPres = prev ? prev.preservedUuids : null;
   return history.prompts.filter(
-    (p) => p.lineNo < b.lineNo && !b.preservedUuids.has(p.uuid)
+    (p) =>
+      (((!prev || p.lineNo > prev.lineNo) && p.lineNo < b.lineNo) ||
+        (prevPres && p.uuid && prevPres.has(p.uuid))) &&
+      !(p.uuid && b.preservedUuids.has(p.uuid))
   );
 }
 

@@ -133,7 +133,7 @@ export function renderReceipt(env) {
     out.push(style.dim("  " + "\u2500".repeat(64)));
     out.push(
       `  ${style.bold(`event ${i + 1}/${boundaries.length}`)} ${style.dim(
-        `${localTime(b.timestamp)} · trigger ${b.trigger}`
+        `${localTime(b.timestamp)} UTC · trigger ${b.trigger}`
       )}`
     );
     out.push("");
@@ -147,7 +147,11 @@ export function renderReceipt(env) {
           ? style.red(`   (${fmtPct(dropped, b.preTokens)} dropped)`)
           : "")
     );
-    out.push(`   dead time   ${fmtDuration(b.durationMs)}`);
+    out.push(
+      `   dead time   ${fmtDuration(b.durationMs)}${
+        b.precomputed ? style.dim(" (precomputed)") : ""
+      }`
+    );
     const pl = (n, one, many) => `${fmtTokens(n)} ${n === 1 ? one : many}`;
     out.push(
       `   replaced    ~${pl(
@@ -158,7 +162,7 @@ export function renderReceipt(env) {
         b.coveredAssistants,
         "reply",
         "replies"
-      )}, ${pl(b.coveredToolResults, "tool batch", "tool batches")})`
+      )}, ${pl(b.coveredToolResults, "tool result", "tool results")})`
     );
     if (b.originSession) {
       out.push(
