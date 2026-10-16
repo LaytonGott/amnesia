@@ -8,6 +8,13 @@ import {
 } from "./claude.mjs";
 import { renderScan, renderReceipt, style } from "./render.mjs";
 import { runRestore, runProtect } from "./actions.mjs";
+import {
+  installHooks,
+  uninstallHooks,
+  hookPrecompact,
+  hookPostcompact,
+  defaultSettingsPath,
+} from "./hooks.mjs";
 
 function printHelp() {
   console.log(`
@@ -20,6 +27,11 @@ function printHelp() {
                                 recover dropped messages into a readable file
     amnesia protect [<session>] [--project <dir>] [--write] [--out <file>]
                                 extract dropped constraints into CLAUDE.md
+    amnesia install [--settings <file>] [--dry-run]
+                                wire Claude Code hooks: snapshot before every
+                                compaction, announce it after
+    amnesia uninstall [--settings <file>]
+                                remove the amnesia hooks
     amnesia --json [<session>]  machine-readable output
     amnesia --root <dir>        use a different projects root
     amnesia --version | --help
@@ -106,8 +118,10 @@ export async function main(argv) {
   let root = DEFAULT_ROOT;
   let all = false;
   let write = false;
+  let dryRun = false;
   let outPath = null;
   let projectArg = null;
+  let settingsPath = null;
   const pos = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -115,8 +129,10 @@ export async function main(argv) {
     if (a === "--json") json = true;
     else if (a === "--all") all = true;
     else if (a === "--write") write = true;
+    else if (a === "--dry-run") dryRun = true;
     else if (a === "--out") outPath = args[++i];
     else if (a === "--project") projectArg = args[++i];
+    else if (a === "--settings") settingsPath = args[++i];
     else if (a === "--root") {
       const v = args[++i];
       if (!v) {
@@ -129,13 +145,89 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.2.0");
+      console.log("amnesia 0.3.0");
       return;
     } else pos.push(a);
   }
 
   const files = listSessionFiles(root);
   const cmd = pos[0];
+
+  if (cmd === "install") {
+    let r;
+    try {
+      r = installHooks({
+        settingsPath: settingsPath || defaultSettingsPath(),
+        dryRun,
+      });
+    } catch (e) {
+      console.error(style.red(`install failed: ${e.message}`));
+      process.exitCode = 1;
+      return;
+    }
+    console.log("");
+    console.log(style.bold("  amnesia") + style.dim(" \u00b7 install"));
+    console.log(style.dim(`  settings: ${r.path}${r.dryRun ? " (dry run)" : ""}`));
+    for (const x of r.results) {
+      console.log(
+        `  + ${x.event.padEnd(11)} \u2192 ${x.command}` +
+          (x.replaced > 0 ? style.dim(` (replaced ${x.replaced})`) : "")
+      );
+    }
+    if (r.backupPath) console.log(style.dim(`  backup: ${r.backupPath}`));
+    console.log(
+      r.dryRun
+        ? style.dim("  nothing written (dry run)")
+        : style.green(
+            "  installed \u2014 every compaction will now be snapshotted and announced."
+          )
+    );
+    console.log("");
+    return;
+  }
+
+  if (cmd === "uninstall") {
+    let r;
+    try {
+      r = uninstallHooks({
+        settingsPath: settingsPath || defaultSettingsPath(),
+        dryRun,
+      });
+    } catch (e) {
+      console.error(style.red(`uninstall failed: ${e.message}`));
+      process.exitCode = 1;
+      return;
+    }
+    console.log("");
+    console.log(style.bold("  amnesia") + style.dim(" \u00b7 uninstall"));
+    console.log(style.dim(`  settings: ${r.path}${r.dryRun ? " (dry run)" : ""}`));
+    if (r.removed.length === 0) {
+      console.log(style.dim("  no amnesia hooks found."));
+    } else {
+      for (const x of r.removed) {
+        console.log(`  - ${x.event} (${x.count} entr${x.count === 1 ? "y" : "ies"})`);
+      }
+      if (r.backupPath) console.log(style.dim(`  backup: ${r.backupPath}`));
+      console.log(style.green("  removed."));
+    }
+    console.log("");
+    return;
+  }
+
+  if (cmd === "hook") {
+    const which = (pos[1] || "").toLowerCase();
+    if (which === "precompact") {
+      await hookPrecompact();
+      return;
+    }
+    if (which === "postcompact") {
+      await hookPostcompact();
+      return;
+    }
+    console.error("usage: amnesia hook precompact|postcompact");
+    process.exitCode = 1;
+    return;
+  }
 
   if (cmd === "restore") {
     const selector = pos[1] || null;

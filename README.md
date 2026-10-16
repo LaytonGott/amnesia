@@ -44,6 +44,10 @@ npx amnesia-cli restore --all            recover every compaction in a session
 npx amnesia-cli protect                  show constraints that were dropped in this project
 npx amnesia-cli protect --write          write them into CLAUDE.md (marked section, safe to re-run)
 
+npx amnesia-cli install                  wire Claude Code hooks: auto-snapshot before
+                                         every compaction, announce it after
+npx amnesia-cli uninstall                remove the hooks
+
 npx amnesia-cli --json                   machine-readable output
 npx amnesia-cli --root <dir>             use a different projects root
 ```
@@ -68,6 +72,20 @@ sentences, and writes them into a clearly marked section of your project's
 `CLAUDE.md`. Dry-run by default; `--write` applies. Re-running updates the
 section in place.
 
+### install (automatic mode — recommended)
+
+`amnesia install` wires amnesia into Claude Code's own hook system:
+
+- **PreCompact** — before the agent forgets anything, the full session is
+  archived to `.amnesia/snapshots/<session>-precompact.md`, including a
+  "Constraints in this session" section. This happens even if you never
+  think about it again.
+- **PostCompact** — after compaction fires, a breadcrumb is emitted pointing
+  at the snapshot, so you (or the agent) know where the missing context went.
+
+Your `settings.json` is backed up before any change, only the amnesia hook
+entries are touched, and `amnesia uninstall` removes them cleanly.
+
 ## How it works
 
 Claude Code stores every session as JSONL at `~/.claude/projects/`. Compaction
@@ -79,12 +97,12 @@ originating session file where the history lives.
 
 - Reads only your local files. Nothing leaves your machine. No network, no deps.
 - Requires Node 18+.
-- Verified against Claude Code 2.1.x session formats.
+- Verified against Claude Code 2.1.x session formats (CLI and desktop app).
 
 ## Roadmap
 
 - [ ] Codex CLI / Gemini CLI / opencode session support
-- [ ] PreCompact hook: auto-archive before every compaction fires
+- [x] PreCompact hook: auto-archive before every compaction fires
 - [ ] Recovery of tool output cleared by micro-compaction
 - [ ] Shareable receipt cards
 - [ ] Cost view (cache read/write tax per compaction)
