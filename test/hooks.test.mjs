@@ -121,11 +121,16 @@ test("precompact hook archives snapshot + sidecar from stdin", () => {
   assert.ok(md.includes("# Pre-compaction snapshot"));
 });
 
-test("postcompact hook queues a recovery marker", () => {
+test("postcompact hook queues the exact dropped messages", () => {
   const cwd = join(tmp, "proj-hook2");
   run(["hook", "precompact"], { input: fixtureInput(cwd, "PreCompact") });
   const input = JSON.stringify({
     session_id: "aaaaaaaa-0000-0000-0000-000000000001",
+    transcript_path: join(
+      ROOT,
+      "projA",
+      "aaaaaaaa-0000-0000-0000-000000000001.jsonl"
+    ),
     cwd,
     trigger: "auto",
     hook_event_name: "PostCompact",
@@ -136,14 +141,22 @@ test("postcompact hook queues a recovery marker", () => {
   assert.ok(existsSync(marker));
   const m = JSON.parse(readFileSync(marker, "utf8"));
   assert.ok(m.snapshot);
+  assert.equal(m.messages.length, 1);
+  assert.ok(m.messages[0].text.includes("auth bug"));
+  assert.ok(!JSON.stringify(m.messages).includes("JWT"));
 });
 
-test("prompt hook injects recovered constraints once, then clears", () => {
+test("prompt hook injects lost messages verbatim once, then clears", () => {
   const cwd = join(tmp, "proj-hook3");
   run(["hook", "precompact"], { input: constraintsInput(cwd) });
   run(["hook", "postcompact"], {
     input: JSON.stringify({
       session_id: "dddddddd-0000-0000-0000-000000000001",
+      transcript_path: join(
+        ROOT,
+        "projC",
+        "dddddddd-0000-0000-0000-000000000001.jsonl"
+      ),
       cwd,
       trigger: "auto",
       hook_event_name: "PostCompact",
@@ -158,12 +171,11 @@ test("prompt hook injects recovered constraints once, then clears", () => {
   const out = run(["hook", "prompt"], { input: promptInput });
   const j = JSON.parse(out);
   assert.equal(j.hookSpecificOutput.hookEventName, "UserPromptSubmit");
-  assert.ok(
-    j.hookSpecificOutput.additionalContext.includes(
-      "Never import the lobby module"
-    )
-  );
-  assert.ok(j.hookSpecificOutput.additionalContext.includes("[amnesia]"));
+  const ctx = j.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes("[amnesia]"));
+  assert.ok(ctx.includes("Never import the lobby module"));
+  assert.ok(ctx.includes("Build the sync daemon."));
+  assert.ok(ctx.includes("newer instructions always win"));
   assert.equal(
     existsSync(join(cwd, ".amnesia", "inject", "dddddddd.json")),
     false

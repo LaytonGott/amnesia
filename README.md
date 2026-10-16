@@ -133,12 +133,15 @@ the point.
 on, forgetting heals itself:
 
 - **PreCompact** — before the agent forgets anything, the full session is
-  archived to `.amnesia/snapshots/` and its constraints are extracted.
-- **PostCompact** — after compaction fires, a recovery notice is queued.
-- **UserPromptSubmit** — on your very next prompt, the queued notice is
-  injected straight into the live session through the hook context channel:
-  the dropped rules plus the snapshot path. The agent gets its constraints
-  back without you doing anything.
+  archived to `.amnesia/snapshots/`.
+- **PostCompact** — after compaction fires, the exact set of messages that
+  were dropped is computed (the same reconstruction the receipts use — no
+  heuristics) and the most recent ~1,500 tokens of them are queued.
+- **UserPromptSubmit** — on your very next prompt, those lost messages are
+  injected back into the live session verbatim, with one rule attached:
+  *anything here still applies unless you have since been told otherwise —
+  newer instructions always win*. No keyword matching decides what your rules
+  are; the agent judges from the real messages.
 
 Your `settings.json` is backed up before any change, only the amnesia hook
 entries are touched, and `amnesia uninstall` removes them cleanly.

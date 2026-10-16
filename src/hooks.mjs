@@ -10,7 +10,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectHistory } from "./claude.mjs";
+import { collectHistory, droppedForBoundary } from "./claude.mjs";
 import { extractConstraints } from "./actions.mjs";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -20,6 +20,8 @@ const HOOK_EVENTS = [
   { event: "PostCompact", cmd: "postcompact" },
   { event: "UserPromptSubmit", cmd: "prompt" },
 ];
+
+const INJECT_MAX_CHARS = 6000;
 
 export function defaultSettingsPath() {
   const base = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
@@ -185,7 +187,7 @@ export async function hookPrecompact() {
     );
     md.push("");
     if (constraints.length > 0) {
-      md.push("## Constraints in this session");
+      md.push("## Constraints in this session (keyword-suggested)");
       md.push("");
       for (const c of constraints.slice(0, 40)) md.push(`- ${c.text}`);
       md.push("");
@@ -216,7 +218,6 @@ export async function hookPrecompact() {
           ts: new Date().toISOString(),
           snapshot: out,
           promptCount: history.prompts.length,
-          constraints: constraints.slice(0, 40).map((c) => c.text),
         },
         null,
         2
@@ -237,7 +238,6 @@ export async function hookPostcompact() {
     const dir = join(cwd, ".amnesia", "snapshots");
 
     let snapshot = null;
-    let constraints = [];
     let promptCount = null;
     if (prefix && existsSync(dir)) {
       const files = readdirSync(dir).filter((f) => f.startsWith(prefix)).sort();
@@ -246,7 +246,6 @@ export async function hookPostcompact() {
         try {
           const side = JSON.parse(readFileSync(join(dir, latestJson), "utf8"));
           snapshot = side.snapshot || null;
-          constraints = Array.isArray(side.constraints) ? side.constraints : [];
           promptCount = side.promptCount ?? null;
         } catch {}
       }
@@ -255,6 +254,39 @@ export async function hookPostcompact() {
         if (latestMd) snapshot = join(dir, latestMd);
       }
     }
+
+    let dropped = [];
+    const transcript = input.transcript_path;
+    if (transcript && existsSync(transcript)) {
+      try {
+        const history = await collectHistory({ path: transcript });
+        if (history.boundaries.length > 0) {
+          dropped = droppedForBoundary(
+            history,
+            history.boundaries.length - 1
+          );
+        }
+      } catch {}
+    }
+
+    const selected = [];
+    let chars = 0;
+    for (let i = dropped.length - 1; i >= 0; i--) {
+      const text = (dropped[i].text || "").trim();
+      if (!text) continue;
+      if (chars + text.length > INJECT_MAX_CHARS) {
+        if (selected.length === 0) {
+          selected.push({
+            timestamp: dropped[i].timestamp,
+            text: text.slice(0, INJECT_MAX_CHARS) + " \u2026",
+          });
+        }
+        break;
+      }
+      selected.push({ timestamp: dropped[i].timestamp, text });
+      chars += text.length;
+    }
+    selected.reverse();
 
     if (prefix) {
       const idir = join(cwd, ".amnesia", "inject");
@@ -265,7 +297,8 @@ export async function hookPostcompact() {
           {
             session,
             snapshot,
-            constraints,
+            messages: selected,
+            droppedCount: dropped.length,
             promptCount,
             trigger: input.trigger || "unknown",
             ts: new Date().toISOString(),
@@ -281,11 +314,11 @@ export async function hookPostcompact() {
     const parts = [`amnesia: compaction just fired (${trigger}).`];
     if (snapshot) {
       parts.push(
-        `Pre-compaction snapshot: ${snapshot} \u2014 recoverable context will be injected automatically on the next prompt.`
+        `Pre-compaction snapshot: ${snapshot} \u2014 the most recent lost messages will be injected automatically on the next prompt.`
       );
     } else {
       parts.push(
-        "Run `amnesia restore` for the loss report; recoverable context will be injected automatically on the next prompt."
+        "Recoverable context will be injected automatically on the next prompt."
       );
     }
     console.log(parts.join(" "));
@@ -316,22 +349,33 @@ export async function hookPrompt() {
     lines.push(
       "[amnesia] Your context was just compacted \u2014 earlier messages were replaced by a summary."
     );
-    if (Array.isArray(m.constraints) && m.constraints.length > 0) {
+    const messages = Array.isArray(m.messages) ? m.messages : [];
+    if (messages.length > 0) {
       lines.push(
-        "Rules from before the compaction that must keep applying:"
+        "Below are the most recent messages you lost, verbatim (oldest first). Anything instructed there still applies unless you have since been told otherwise \u2014 newer instructions always win."
       );
-      for (const c of m.constraints.slice(0, 20)) lines.push(`- ${c}`);
+      lines.push("");
+      for (const msg of messages) {
+        const day = msg.timestamp
+          ? String(msg.timestamp).replace("T", " ").slice(0, 16)
+          : "";
+        lines.push(`[user${day ? " \u00b7 " + day : ""}] ${msg.text}`);
+        lines.push("");
+      }
+    } else {
+      lines.push(
+        "Earlier messages are recoverable from the snapshot below if needed."
+      );
     }
     if (m.snapshot) {
       lines.push(`Full pre-compaction snapshot: ${m.snapshot}`);
     }
-    const additionalContext = lines.join("\n");
 
     console.log(
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "UserPromptSubmit",
-          additionalContext,
+          additionalContext: lines.join("\n"),
         },
       })
     );
