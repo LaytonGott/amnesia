@@ -117,6 +117,9 @@ replaced, reads the summary that took its place, and can recover the dropped
 messages. Resumed sessions that start post-compaction are followed back to the
 originating session file where the history lives.
 
+Full decoded map of all five forgetting mechanisms, the boundary schema,
+persisted-output format, and hook events: **[docs/MECHANISMS.md](docs/MECHANISMS.md)**.
+
 - Reads only your local files. Nothing leaves your machine. No network, no deps.
 - Requires Node 18+.
 - Verified against Claude Code 2.1.x session formats (CLI and desktop app).
