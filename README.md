@@ -51,6 +51,9 @@ npx amnesia-cli recover <session-id>     recover a specific session's persisted 
 npx amnesia-cli codex                    scan Codex CLI sessions for compaction
 npx amnesia-cli codex <session-id>       compaction receipt for a Codex session
 
+npx amnesia-cli card                     shareable receipt card for the latest compaction (HTML)
+npx amnesia-cli card <session-id>        card for a specific session
+
 npx amnesia-cli install                  wire Claude Code hooks: auto-snapshot before
                                          every compaction, announce it after
 npx amnesia-cli uninstall                remove the hooks
@@ -117,6 +120,13 @@ sessions and renders the same kind of receipt:
 <session-id>` shows the per-event receipts. Synthetic injections (AGENTS.md
 blocks, app messages) are excluded from drop counts.
 
+### card
+
+`amnesia card` writes a screenshot-ready receipt (self-contained HTML) for the
+latest compaction in a session: the token drop, the freeze time, and the first
+dropped prompts. Open it in a browser, screenshot it, post it — the receipt is
+the point.
+
 ### install (automatic mode — recommended)
 
 `amnesia install` wires amnesia into Claude Code's own hook system:
@@ -155,7 +165,7 @@ persisted-output format, and hook events: **[docs/MECHANISMS.md](docs/MECHANISMS
 - [ ] Gemini CLI / opencode session support
 - [x] PreCompact hook: auto-archive before every compaction fires
 - [x] Recovery of persisted tool outputs (oversized and cleared results)
-- [ ] Shareable receipt cards
+- [x] Shareable receipt cards (`amnesia card`, HTML)
 - [ ] Cost view (cache read/write tax per compaction)
 
 ## License

@@ -24,6 +24,7 @@ import {
   renderCodexReceipt,
   CODEX_ROOT,
 } from "./codex.mjs";
+import { writeCard, cardOutputPath } from "./card.mjs";
 
 function printHelp() {
   console.log(`
@@ -39,6 +40,8 @@ function printHelp() {
     amnesia recover [<session>] [--out <dir>]
                                 recover tool outputs that were persisted to disk
     amnesia codex [<session>]   Codex CLI sessions: scan + compaction receipts
+    amnesia card [<session>] [--out <file.html>]
+                                shareable receipt card (open, screenshot, post)
     amnesia install [--settings <file>] [--dry-run]
                                 wire Claude Code hooks: snapshot before every
                                 compaction, announce it after
@@ -172,7 +175,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.5.0");
+      console.log("amnesia 0.6.0");
       return;
     } else pos.push(a);
   }
@@ -413,6 +416,61 @@ export async function main(argv) {
       }
     }
     await runRecover({ file, outDir: outPath });
+    return;
+  }
+
+  if (cmd === "card") {
+    const selector = pos[1] || null;
+    let file = null;
+    if (selector) {
+      const r = resolveFile(files, selector);
+      if (r.error) {
+        process.exitCode = 1;
+        return;
+      }
+      file = r.file;
+      if (!file) {
+        console.error(style.red(`no session matching "${selector}"`));
+        process.exitCode = 1;
+        return;
+      }
+    } else {
+      const dir = join(root, encodeProjectPath(process.cwd()));
+      if (!existsSync(dir)) {
+        console.error(style.red("no Claude Code sessions found for this directory."));
+        console.error(style.dim("pass a session id:  amnesia card <session-id>"));
+        process.exitCode = 1;
+        return;
+      }
+      file = await latestCompacted(files, dir);
+      if (!file) {
+        console.error(
+          style.red("no compaction events in this project's recent sessions.")
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
+    const env = await scanFile(file, { withPreviews: true });
+    if (env.boundaries.length === 0) {
+      console.log("");
+      console.log(style.green("  no compaction events found \u2014 nothing to show."));
+      console.log("");
+      return;
+    }
+    const out = cardOutputPath(outPath, file.session);
+    writeCard(out, env);
+    console.log("");
+    console.log(style.bold("  amnesia") + style.dim(" \u00b7 card"));
+    console.log(
+      style.dim(
+        `  ${file.project.slice(0, 40)}/${file.session.slice(0, 8)} \u00b7 latest of ${env.boundaries.length} event(s)`
+      )
+    );
+    console.log("");
+    console.log(style.green(`  card written to ${out}`));
+    console.log(style.dim("  open it in a browser and screenshot it."));
+    console.log("");
     return;
   }
 
