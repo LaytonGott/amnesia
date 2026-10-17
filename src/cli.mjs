@@ -92,6 +92,7 @@ function toJson(env) {
         toolResults: b.coveredToolResults,
       },
       summary: b.summary,
+      pluginBlock: b.pluginBlock ?? null,
       previews: b.previews,
     })),
   };
@@ -187,7 +188,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.13.1");
+      console.log("amnesia 0.14.0");
       return;
     } else pos.push(a);
   }

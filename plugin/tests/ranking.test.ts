@@ -132,8 +132,8 @@ test('a value stated in prose travels with the clause that names its owner', () 
     6000,
   );
   const got = items(r?.text);
-  expect(got).toContain('For cobalt-payouts, the staging port is 17448');
-  expect(got).toContain('For brisk-payouts, the pinned SDK version is 5.13.1');
+  expect(got).toContain('For cobalt-payouts: the staging port is 17448');
+  expect(got).toContain('For brisk-payouts: the pinned SDK version is 5.13.1');
   // the bare value is inside its clause, so it is not listed again
   expect(got.includes('5.13.1')).toBe(false);
 });
@@ -185,6 +185,30 @@ test('a value the agent reported competes with what the person typed on equal te
     300,
   );
   const got = items(r?.text);
-  expect(got).toContain('For acme-billing, the staging port is 29860');
+  expect(got).toContain('For acme-billing: the staging port is 29860');
   expect(got).toContain('settlement_retry_timeout_ms = 7350');
+});
+
+test('settings that share an owner share one line', () => {
+  const r = specificsBlock(
+    [user('For acme-billing, the staging port is 29860. For acme-billing, the tracking ticket is OPS-96797.')],
+    '',
+    6000,
+  );
+  const lines = (r?.text ?? '').split('\n').slice(1);
+  expect(lines).toContain('- For acme-billing: the staging port is 29860; the tracking ticket is OPS-96797');
+  expect(r?.included).toBe(2);
+});
+
+test('when only tool-seen details are missing, no block is added', () => {
+  const r = specificsBlock(
+    [
+      asst('reading', [
+        { tool_use_id: 'r1', tool: 'Read', input: { file_path: 'C:/work/repo/config/app.env' }, text: 'DB_POOL_SIZE=20\nDB_POOL_SIZE=20\nCACHE_TTL_SECONDS=90\nCACHE_TTL_SECONDS=90' },
+      ]),
+    ],
+    '',
+    6000,
+  );
+  expect(r).toBe(null);
 });

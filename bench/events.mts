@@ -26,7 +26,18 @@ export type Event = {
   prompts: string[];
   readOnly: (s: string) => boolean;
   summary: string;
+  // text of the messages the compaction kept verbatim: still in context after it
+  kept: string;
 };
+
+const allTextOf = (c: unknown): string =>
+  Array.isArray(c)
+    ? c
+        .map((b: any) =>
+          b?.type === 'text' ? b.text : b?.type === 'tool_use' ? JSON.stringify(b.input ?? {}) : b?.type === 'tool_result' ? textOf(b.content) : '',
+        )
+        .join('\n')
+    : textOf(c);
 
 export function eventsOf(path: string): Event[] {
   const rows: any[] = [];
@@ -99,6 +110,10 @@ export function eventsOf(path: string): Event[] {
       prompts,
       readOnly: (s) => read.includes(s) && !other.includes(s),
       summary: textOf(summaryRow.message?.content),
+      kept: rows
+        .filter((o) => o?.uuid && curPres.has(o.uuid))
+        .map((o) => allTextOf(o.message?.content))
+        .join('\n'),
     });
   });
   return out;

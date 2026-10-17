@@ -50,6 +50,16 @@ export function isAmnesiaBlock(text) {
   return typeof text === "string" && text.trimStart().startsWith(AMNESIA_MARKER);
 }
 
+// the plugin's block ("[amnesia] Exact details ...", one "- " line per item,
+// items that share an owner joined by "; "); the command hooks' re-injection
+// also starts with the marker but is not a block
+export function pluginBlockOf(text) {
+  if (!/^\s*\[amnesia\] Exact details/.test(text)) return null;
+  const lines = text.split(/\r?\n/).filter((l) => l.startsWith("- "));
+  const details = lines.reduce((n, l) => n + l.split(" — \"")[0].split("; ").length, 0);
+  return { details, chars: text.length, items: lines.map((l) => l.slice(2)) };
+}
+
 const REMINDER_ONLY =/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/;
 
 export function extractText(content) {
@@ -124,6 +134,7 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
             coveredAssistants: 0,
             coveredToolResults: 0,
             summary: null,
+            pluginBlock: null,
             previews: [],
           };
           boundaries.push(current);
@@ -157,7 +168,10 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
         continue;
       }
       const text = extractText(content);
-      if (isAmnesiaBlock(text)) continue;
+      if (isAmnesiaBlock(text)) {
+        if (current && !current.pluginBlock) current.pluginBlock = pluginBlockOf(text);
+        continue;
+      }
       users.push({
         lineNo: lines,
         timestamp: o.timestamp || null,

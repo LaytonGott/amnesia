@@ -20,8 +20,17 @@ export const register: Register = (on, options) => {
     const fresh = done.messages.map((m, i) => (inKeys.has(keyOf(m)) ? -1 : i)).filter((i) => i >= 0);
     if (dropped.length === 0 || fresh.length === 0) return done;
 
-    const summary = fresh.map((i) => done.messages[i]?.text ?? '').join('\n');
-    const block = specificsBlock(dropped, summary, budget);
+    // what is still in context: the summary, and the messages kept verbatim beside it
+    const kept = done.messages.filter((m) => inKeys.has(keyOf(m)));
+    const inContext = [
+      ...fresh.map((i) => done.messages[i]?.text ?? ''),
+      ...kept.flatMap((m) => [
+        m.text,
+        ...m.toolUses.flatMap((u) => [JSON.stringify(u.input ?? {}), u.text ?? '']),
+        ...(m.toolResults ?? []).map((r) => r.text ?? ''),
+      ]),
+    ].join('\n');
+    const block = specificsBlock(dropped, inContext, budget);
     if (!block) return done;
 
     const messages = [...done.messages];

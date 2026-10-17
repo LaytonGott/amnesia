@@ -127,6 +127,18 @@ stands. Design and measurements: [docs/DESIGN-compact-hook.md](docs/DESIGN-compa
    03:24  user  Audit only. Do not modify code. …
 ```
 
+With the plugin active, each compaction's receipt also shows what the block
+kept:
+
+```
+   amnesia     block kept 54 exact detail(s) the summary dropped (5,941 chars)
+
+   what amnesia kept (first 5):
+   + For brisk-payouts: the pinned SDK version is 5.13.1; the staging port is 45574
+   + settlement_retry_timeout_ms = 7350
+   …
+```
+
 ## Commands
 
 ```

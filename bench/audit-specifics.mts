@@ -112,12 +112,15 @@ const t = {
 };
 for (const e of best.values()) {
   const t0 = performance.now();
-  const block = specificsBlock(e.dropped, e.summary, BUDGET);
+  // in context after the compaction: the summary and the messages kept verbatim;
+  // AUDIT_KEPT=0 hands the extractor the summary alone (the pre-0.14 behaviour)
+  const present = e.summary + '\n' + e.kept;
+  const block = specificsBlock(e.dropped, process.env.AUDIT_KEPT === '0' ? e.summary : present, BUDGET);
   t.maxMs = Math.max(t.maxMs, performance.now() - t0);
   t.events++;
   const b = block?.text ?? '';
-  const sumL = e.summary.toLowerCase();
-  const bothL = (e.summary + '\n' + b).toLowerCase();
+  const sumL = present.toLowerCase();
+  const bothL = (present + '\n' + b).toLowerCase();
   const atoms = new Set<string>();
   for (const p of e.prompts) for (const m of p.matchAll(COMPOUND_RE)) if (m[0].length >= 5) atoms.add(m[0].toLowerCase());
   for (const a of atoms) {
@@ -133,7 +136,7 @@ for (const e of best.values()) {
   }
   const own = [...e.prompts, ...e.dropped.filter((m) => m.role === 'assistant').map((m) => m.text)].join('\n');
   for (const s of hv) {
-    if (e.summary.includes(s)) continue;
+    if (present.includes(s)) continue;
     const k = kindOf(s);
     t.hvMissing++;
     t.hvMissingByKind[k] = (t.hvMissingByKind[k] ?? 0) + 1;
@@ -153,7 +156,7 @@ for (const e of best.values()) {
   }
   for (const [kv, k] of settings) {
     const v = kv.split('\u0000')[1]!;
-    if (e.summary.includes(k) && e.summary.includes(v)) continue;
+    if (present.includes(k) && present.includes(v)) continue;
     t.setMissing++;
     if (blockLines.some((l) => l.includes(k) && l.includes(v))) t.setRecovered++;
   }
@@ -171,8 +174,8 @@ const pct = (a: number, b: number) => (b ? ((100 * a) / b).toFixed(1) + '%' : 'n
 console.log(`module ${modPath}`);
 console.log(`${files} session files, ${t.events} distinct compactions, budget ${BUDGET} chars`);
 console.log(`promptAtoms   ${t.promptAtoms} exact strings from dropped prompts`);
-console.log(`  in summary            ${pct(t.atomsInSummary, t.promptAtoms)}`);
-console.log(`  in summary + block    ${pct(t.atomsInSummaryOrBlock, t.promptAtoms)}`);
+console.log(`  in context (summary + kept)  ${pct(t.atomsInSummary, t.promptAtoms)}`);
+console.log(`  in context + block           ${pct(t.atomsInSummaryOrBlock, t.promptAtoms)}`);
 console.log(`highValue     ${t.hvMissing} missing from summary; block brings back ${pct(t.hvRecovered, t.hvMissing)}`);
 for (const k of Object.keys(t.hvMissingByKind).sort()) {
   console.log(`  ${k.padEnd(8)} ${pct(t.hvRecoveredByKind[k] ?? 0, t.hvMissingByKind[k]!)} of ${t.hvMissingByKind[k]}`);

@@ -121,3 +121,14 @@ test('a configured budget (userConfig budgetChars) sizes the block', { options: 
   expect(block.length > 6000).toBe(true);
   expect(block.length <= 12000).toBe(true);
 });
+
+test('details still in the messages core kept verbatim are not repeated', async ($, on) => {
+  const keptMsg = msg('assistant', 'Pinned the build to commit 4e9b1c27d and set MAX_RETRY_COUNT=3.', 'k1');
+  const history = [msg('user', 'Pin the build to commit 4e9b1c27d and set MAX_RETRY_COUNT=3; ticket OPS-77412.', 'h1'), keptMsg];
+  on('session.compact', core(SUMMARY, [keptMsg]));
+  const r = await $.session.compact({ trigger: 'auto', messages: history });
+  if (r.skip !== undefined) throw new Error('skipped');
+  const block = at(r.messages, 1).text;
+  expect(block).toContain('OPS-77412');
+  expect(block.includes('4e9b1c27d')).toBe(false);
+});

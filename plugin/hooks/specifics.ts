@@ -18,7 +18,9 @@ export type Kind =
 const TIER: Record<Kind, number> = {
   setting: 5, url: 5, hash: 5, version: 4, code: 4, handle: 4, path: 4, env: 4, file: 3, quoted: 3, flag: 2, dotted: 2, ident: 1,
 };
-const PRONOUN = /^(?:it|this|that|there|these|those|which|what|who|he|she|they|we|i|you|here|one|each|all|both|total|count|number)$/i;
+// "For acme-billing, the staging port is 29860" -> owner "For acme-billing"
+const OWNER = /^((?:For|In|On|At) [^,;:]{2,50}),\s+(.+)$/;
+const PRONOUN =/^(?:it|this|that|there|these|those|which|what|who|he|she|they|we|i|you|here|one|each|all|both|total|count|number)$/i;
 
 const PATH = /(?:[A-Za-z]:)?(?:[\\/]?[\w.@-]+[\\/])+[\w.@-]+/g;
 // a slash between words ("deploy/infra") is prose, not a path
@@ -280,6 +282,9 @@ export function specificsBlock(
     // a single mention in tool traffic is usually noise
     .filter((h) => !(h.best <= WEIGHT.output && h.count < 2))
     .map((h) => ({ ...h, score: scoreOf(h, n) }))
+    // what only tools ever saw (file dumps, command output) and locations only
+    // passed to tools can be found again: it never spends context on its own
+    .filter((h) => h.inOwn || !(h.best <= WEIGHT.output || h.kind === 'path' || h.kind === 'file'))
     .sort((a, b) => b.score - a.score)
     .slice(0, 500);
   // a string inside a longer one that ranks at least as high (config.ts in src/runtime/config.ts) adds nothing
@@ -290,25 +295,38 @@ export function specificsBlock(
   const head =
     `${MARKER} Exact details the summary above dropped, verbatim from the replaced history. ` +
     'For reference only: newer instructions win, and do not redo actions that were already completed.';
-  const lines: string[] = [];
+  const lines: { owner?: string; text: string }[] = [];
   const chosen: string[] = [];
   let used = head.length;
   for (const h of top) {
     if (chosen.some((c) => c.includes(h.s))) continue;
+    // settings that share an owner ("For acme-billing, ...") share one line:
+    // each extra one costs only its own words
+    const own = h.kind === 'setting' ? h.s.match(OWNER) : null;
+    if (own?.[1] && own[2]) {
+      const group = lines.find((l) => l.owner === own[1]);
+      const add = group ? `; ${own[2]}` : `- ${own[1]}: ${own[2]}`;
+      if (used + add.length + (group ? 0 : 1) > budgetChars) continue;
+      if (group) group.text += add;
+      else lines.push({ owner: own[1], text: add });
+      chosen.push(h.s);
+      used += add.length + (group ? 0 : 1);
+      continue;
+    }
     // cut from the right: the left end holds the subject
     const ctx = h.context.length > 80 ? h.context.slice(0, 77) + '...' : h.context;
     // key = value already says what the value is; context would only spend budget
     const line = ctx && ctx !== h.s && h.kind !== 'setting' ? `- ${h.s} — "${ctx}"` : `- ${h.s}`;
     if (used + line.length + 1 > budgetChars) continue;
-    lines.push(line);
+    lines.push({ text: line });
     chosen.push(h.s);
     used += line.length + 1;
   }
   if (lines.length === 0) return null;
   return {
-    text: [head, ...lines].join('\n'),
+    text: [head, ...lines.map((l) => l.text)].join('\n'),
     candidates: hits.size,
     missing: missing.length,
-    included: lines.length,
+    included: chosen.length,
   };
 }

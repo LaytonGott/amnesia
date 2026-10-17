@@ -40,10 +40,13 @@ for (const r of runs) {
     console.log(`${r.arm}${r.rep}: transcript not found`);
     continue;
   }
-  const block = specificsBlock(e.dropped, e.summary, 6000)?.text ?? '';
+  // still in context: the summary and the messages kept verbatim (AUDIT_KEPT=0: summary alone, pre-0.14)
+  const present = e.summary + '\n' + e.kept;
+  const given = process.env.AUDIT_KEPT === '0' ? e.summary : present;
+  const block = specificsBlock(e.dropped, given, Number(process.env.AUDIT_BUDGET || 6000))?.text ?? '';
   const lines = block.split('\n');
   const facts: { id: string; expected: string }[] = r.results;
-  const lost = facts.filter((f) => !e.summary.includes(f.expected));
+  const lost = facts.filter((f) => !present.includes(f.expected));
   const kept = lost.filter((f) => block.includes(f.expected));
   const tied = kept.filter((f) => {
     const o = (owners.get(f.id) ?? '').toLowerCase();

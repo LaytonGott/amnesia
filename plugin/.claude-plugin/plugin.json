@@ -1,8 +1,11 @@
 {
   "name": "amnesia",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Appends the exact strings a compaction summary dropped (paths, IDs, versions) right after the summary.",
-  "author": { "name": "LaytonGott", "url": "https://github.com/LaytonGott" },
+  "author": {
+    "name": "LaytonGott",
+    "url": "https://github.com/LaytonGott"
+  },
   "userConfig": {
     "budgetChars": {
       "type": "number",

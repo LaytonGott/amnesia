@@ -385,6 +385,38 @@ Left uncarried under stress, all for budget:
 
 Every remaining loss is the 6,000-char budget.
 
+### v10: the automatic path verified; budget spent only where it counts
+
+- **Automatic compaction verified live.** A seeded ~190k-token session was
+  forked with `autoCompactWindow: 100000`, and one prompt made Claude Code
+  compact on its own. The log read `session.compact (auto): a hook's 4
+  messages stand … core ran beneath`; the boundary stored `trigger: auto`
+  and the block followed the summary. The hook took 40.9 s including core's
+  40.5 s summary, which confirms live that the 10 s budget excludes core's
+  time. Not yet observed: reuse of a summary Claude Code prepared in advance
+  (`precomputed: true`). That dispatch arrives as `auto` too, per the
+  typings.
+- **Messages kept verbatim count as in context.** Details still in the
+  messages core kept beside the summary are not repeated. Real data
+  (73 compactions, now measured against summary plus kept messages):
+  - dropped-prompt strings 32.6% → 33.0%;
+  - high-value strings the person or agent wrote 47.7% → 49.1%;
+  - named settings 31.0% → 32.9%.
+- **Settings that share an owner share a line**: "For acme-billing: the
+  staging port is 29860; the tracking ticket is OPS-96797". Stress replay:
+  764 → **788 of 788** dropped facts carried, all bound. Real data:
+  unchanged, since that phrasing is rare outside the bench.
+- **Nothing that only tools saw is added on its own.** That covers output
+  of tools, and paths or file names that were only passed to tools. In the
+  live auto run the summary had kept every probe fact, and the v9 block
+  still filled 6,000 chars with env-var names from file dumps and paths
+  passed to Read. Now that case adds no block and gives the ~1.5k tokens
+  back. Real-data measures are unchanged, since real compactions have
+  enough higher-value items to fill the budget.
+- **The receipt shows the block:** `amnesia block kept N exact detail(s)
+  the summary dropped (C chars)` per compaction, with the first five lines,
+  plus `pluginBlock` in `--json`.
+
 ## Validation
 
 1. **Offline, $0:** extend `bench/audit-real.mjs` to run `specificsBlock` on

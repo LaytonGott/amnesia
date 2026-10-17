@@ -172,6 +172,13 @@ export function renderReceipt(env) {
     if (b.preservedCount != null) {
       out.push(`   preserved   ${fmtTokens(b.preservedCount)} message(s) kept verbatim`);
     }
+    if (b.pluginBlock) {
+      out.push(
+        `   amnesia     ${style.green(
+          `block kept ${fmtTokens(b.pluginBlock.details)} exact detail(s) the summary dropped`
+        )}${style.dim(` (${fmtTokens(b.pluginBlock.chars)} chars)`)}`
+      );
+    }
     if (b.cumulativeDroppedTokens != null) {
       out.push(
         `   cumulative  ${style.red(
@@ -208,6 +215,15 @@ export function renderReceipt(env) {
           )
         );
       }
+    }
+    if (b.pluginBlock?.items.length) {
+      out.push("");
+      out.push(style.dim("   what amnesia kept (first 5):"));
+      for (const it of b.pluginBlock.items.slice(0, 5)) {
+        out.push(`   ${style.green("+")} ${truncate(it.replace(/\s+/g, " "), 82)}`);
+      }
+      const rest = b.pluginBlock.items.length - 5;
+      if (rest > 0) out.push(style.dim(`   \u2026 ${fmtTokens(rest)} more line${rest === 1 ? "" : "s"}`));
     }
   });
 

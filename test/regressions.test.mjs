@@ -303,3 +303,42 @@ test("rows the plugin appends after a summary are not counted as prompts", async
   assert.equal(isAmnesiaBlock("  [amnesia] x"), true);
   assert.equal(isAmnesiaBlock("about [amnesia]"), false);
 });
+
+test("the receipt shows what the plugin's block kept at each compaction", async () => {
+  const root = join(tmp, "root-pluginblock");
+  const dir = join(root, "projP");
+  mkdirSync(dir, { recursive: true });
+  const sid = "abababab-0000-0000-0000-000000000001";
+  writeFileSync(
+    join(dir, `${sid}.jsonl`),
+    jsonl([
+      { type: "user", uuid: "q1", timestamp: "2026-10-01T10:00:00.000Z", message: { role: "user", content: "For acme-billing, the staging port is 29860." } },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "b1",
+        timestamp: "2026-10-01T10:05:00.000Z",
+        compactMetadata: { trigger: "auto", preTokens: 50000, postTokens: 6000 },
+      },
+      { type: "user", uuid: "s1", isCompactSummary: true, message: { role: "user", content: "Summary: billing work." } },
+      {
+        type: "user",
+        uuid: "k1",
+        message: {
+          role: "user",
+          content:
+            "[amnesia] Exact details the summary above dropped, verbatim from the replaced history.\n" +
+            "- For acme-billing: the staging port is 29860; the tracking ticket is OPS-96797\n" +
+            '- 4e9b1c27d — "Pin the release to commit 4e9b1c27d."',
+        },
+      },
+    ])
+  );
+  const s = await scanFile({ path: join(dir, `${sid}.jsonl`), project: "projP", session: sid, size: 0, mtimeMs: 0 });
+  assert.equal(s.boundaries[0].pluginBlock.details, 3);
+  const out = run([sid, "--root", root]);
+  assert.ok(out.includes("block kept 3 exact detail(s)"), out);
+  assert.ok(out.includes("what amnesia kept"));
+  const j = JSON.parse(run(["--json", sid, "--root", root]));
+  assert.equal(j.boundaries[0].pluginBlock.details, 3);
+});
