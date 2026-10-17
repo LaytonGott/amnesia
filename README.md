@@ -96,8 +96,10 @@ How it picks what to add:
   Output of tools that only read files ranks last, since it can be read
   again.
 - **What it leaves out:** anything the summary already has.
-- **The budget:** ~6,000 chars, about 1.5k tokens, added to context after
-  each compaction.
+- **The budget:** 6,000 chars by default, about 1.5k tokens, added to
+  context after each compaction. It is the plugin's `budgetChars` setting
+  (1,000–40,000): `claude plugin configure amnesia`, or the plugin's row in
+  the config menu.
 
 It never changes the summary, and on any failure Claude Code's own result
 stands. Design and measurements: [docs/DESIGN-compact-hook.md](docs/DESIGN-compact-hook.md).

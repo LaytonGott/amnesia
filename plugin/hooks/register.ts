@@ -1,11 +1,13 @@
 import type { Register } from 'claude-code';
 import { specificsBlock, type Msg } from './specifics.ts';
 
-const BUDGET_CHARS = 6000;
+// userConfig budgetChars (plugin.json declares the default and range)
+const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 6000);
 
 const keyOf = (m: Msg) => m.handle ?? `${m.role}\u0000${m.text}`;
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  const budget = budgetOf(options?.budgetChars);
   on('session.compact', async ($, e, next) => {
     if (e.trigger === 'precompute' || e.agentId !== undefined) return next(e);
 
@@ -19,7 +21,7 @@ export const register: Register = (on) => {
     if (dropped.length === 0 || fresh.length === 0) return done;
 
     const summary = fresh.map((i) => done.messages[i]?.text ?? '').join('\n');
-    const block = specificsBlock(dropped, summary, BUDGET_CHARS);
+    const block = specificsBlock(dropped, summary, budget);
     if (!block) return done;
 
     const messages = [...done.messages];

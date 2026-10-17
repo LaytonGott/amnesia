@@ -382,7 +382,7 @@ export async function hookPrompt() {
       lines.push(
         `Below are the most recent messages you lost, ${
           m.truncated ? "long ones shortened" : "verbatim"
-        } (oldest first). Anything instructed there still applies unless you have since been told otherwise \u2014 newer instructions always win.`
+        } (oldest first). They are for reference: constraints and details in them may still matter, but newer instructions always win, and do not redo actions that were already completed.`
       );
       lines.push("");
       for (const msg of messages) {

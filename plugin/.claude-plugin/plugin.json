@@ -1,6 +1,16 @@
 {
   "name": "amnesia",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Appends the exact strings a compaction summary dropped (paths, IDs, versions) right after the summary.",
-  "author": { "name": "LaytonGott", "url": "https://github.com/LaytonGott" }
+  "author": { "name": "LaytonGott", "url": "https://github.com/LaytonGott" },
+  "userConfig": {
+    "budgetChars": {
+      "type": "number",
+      "title": "Block budget (characters)",
+      "description": "How much exact detail to append after each compaction summary. About 4 characters per token; it stays in context until the next compaction.",
+      "default": 6000,
+      "min": 1000,
+      "max": 40000
+    }
+  }
 }

@@ -188,6 +188,9 @@ test("prompt hook injects lost messages verbatim once, then clears", () => {
   assert.ok(ctx.includes("Never import the lobby module"));
   assert.ok(ctx.includes("Build the sync daemon."));
   assert.ok(ctx.includes("newer instructions always win"));
+  // re-injected prompts are reference, never a fresh order to repeat a one-off action
+  assert.ok(ctx.includes("do not redo actions that were already completed"));
+  assert.equal(ctx.includes("still applies"), false);
   assert.equal(
     existsSync(join(projStore(cwd), "inject", "dddddddd.json")),
     false

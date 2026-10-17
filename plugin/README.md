@@ -26,8 +26,9 @@ In Claude Code (one-step install needs 2.1.275 or later; verified on
   managed settings.
 - **Skipped compactions:** `precompute` dispatches and subagent compactions
   pass through untouched.
-- **Budget:** the block is capped at ~6,000 chars (about 1.5k tokens of
-  context after each compaction).
+- **Budget:** the block is capped at 6,000 chars by default (about 1.5k
+  tokens of context after each compaction). Change it with the
+  `budgetChars` setting (1,000–40,000): `claude plugin configure amnesia`.
 
 Measurements, design and platform facts:
 [docs/DESIGN-compact-hook.md](../docs/DESIGN-compact-hook.md) and
