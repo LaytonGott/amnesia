@@ -187,8 +187,55 @@ valid runs, $3.11.
   "the X is <value>" prose as a setting. This needs a live re-check, since
   the offline audit cannot see binding.
 
-Spend across all A/B runs: about $8.40 (smoke $1.75, first 100-fact batch
-$3.54, v7 batch $3.11).
+### Extractor v8 (values bound to owners), live under a forced-lossy summary
+
+**Offline first** (`bench/replay-ab.mts`, no model calls). The three lossy
+live runs so far dropped 97 facts in total.
+- **v7** carried 88 of them, but only 61 sat on a block line together with
+  their owner (service or key).
+- **v8** carries all 97, every one bound.
+- **On real data**, v8 nudged every audit measure up (see
+  docs/DESIGN-compact-hook.md).
+
+**Live stress batch.** Lossy summaries are rare in natural runs (3 of 24 so
+far), so this batch gives `/compact` brevity instructions in **both** arms:
+"Keep this summary to five sentences. Do not list identifiers, values,
+versions, ports, hashes, names or file contents." That is a stress
+condition, not natural behavior: it shows what the block does when the
+summary keeps almost nothing.
+
+Run: `--tag v8stress`, 4 reps per arm, plugin c0a1576, 8/8 valid, $3.41.
+
+| arm | correct (mean of 100) | in summary | carried by block | recalled of carried | recalled of not carried |
+|---|---|---|---|---|---|
+| A baseline | **2.0** | 0.5 | — | — | 8/398 |
+| C plugin | **85.0** | 0.0 | 84 per run | 332/336 | 8/64 |
+
+- **Without the plugin the agent keeps 2 facts of 100.** Those are the two
+  cron schedules, held by the message the compaction preserved verbatim.
+- **With it, 85.** That's identical in all 4 reps, because the block is
+  deterministic once the summary is.
+- **Binding works.** The agent recalled 332 of the 336 carried facts. The 4
+  misses are all F91, whose answer is `41`. The "carried" check matches any
+  "41" in the block, so it was probably never actually carried, and the
+  true rate is 332 of about 332.
+- **The 16 facts per run not carried are a capacity and pattern gap, not a
+  binding gap:**
+  - **Budget:** the block was full at 84 items. The earliest file lookups
+    (F11–F15, F92–F95) lose on recency.
+  - **Patterns:** stated forms the patterns don't catch yet. "Our deploy
+    region is …" and "On-call owner is …" (no "the"), "listens on port
+    18443", and `@handles`.
+
+What this establishes:
+- When a summary loses details, the block is the agent's only source for
+  them, and it binds them well enough to be recalled.
+- How often that happens naturally (3 of 24 runs at ~190k tokens; far more
+  at ~1M tokens per the real-data audit) decides how much it matters in
+  practice.
+
+Spend across all A/B runs: about $11.80 (smoke $1.75, first 100-fact batch
+$3.54, v7 batch $3.11, v8 stress batch $3.41).
 
 ## Known limits of this bench
 

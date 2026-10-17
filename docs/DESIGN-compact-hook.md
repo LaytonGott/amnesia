@@ -319,6 +319,34 @@ How v7 got there:
 - **v7:** settings lines dropped their redundant context. That fit about 20%
   more items, and lifted every measure.
 
+### v8: binding values to their owners
+
+The v7 live batch carried 54 of the 63 facts its summary dropped, and the
+agent recalled 47. Every carried miss was a value whose owner sat outside
+the snippet ("…payouts, the pinned SDK version is 5.13.1"). v8:
+- **Snippets lean left:** 70 chars before the value, 20 after, from the
+  start of its sentence to its end. Shown up to 80 chars, cut from the
+  right.
+- **Prose clauses are captured as settings.** "For cobalt-payouts, the
+  staging port is 17448" becomes one item, so the value carries its owner.
+
+| | v7 | v8 |
+|---|---|---|
+| dropped facts carried, three lossy live runs (replay) | 88/97 | **97/97** |
+| of those, value and owner on one line | 61 | **97** |
+| real data: dropped-prompt strings | 30.6% | 30.9% |
+| real data: high-value strings the person/agent wrote | 48.0% | 50.2% |
+| real data: named settings | 29.6% | 30.6% |
+
+Live under a forced-lossy summary (docs/EFFICACY.md):
+- the baseline recalled 2 of 100 facts, the plugin arm 85;
+- 332 of 336 carried facts were recalled.
+
+Remaining gaps:
+- the budget (the block filled at 84 items);
+- prose without "the" ("Our deploy region is …", "On-call owner is …");
+- `@handles`.
+
 ## Validation
 
 1. **Offline, $0:** extend `bench/audit-real.mjs` to run `specificsBlock` on
