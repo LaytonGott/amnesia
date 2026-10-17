@@ -1,0 +1,89 @@
+{
+  "name": "compaction-retention-v2",
+  "expect_boundaries": 2,
+  "probe_mode": "batch",
+  "steps": [
+    {
+      "kind": "say",
+      "text": "Project setup for the Atlas telemetry service. Rules and details for this whole session - remember all of them:\n1. Never modify or add files under migrations/ - the separate schema team owns schema changes.\n2. Every commit message must include ticket ID HERMES-733.\n3. The nightly job may only call the staging API host: staging.internal.example.com. Never production.\n4. The API client library is pinned at 4.7.2.\n5. The failing test we are tracking is test_bucket_rollover_guard.\n6. The response cache TTL is 25 minutes.\n7. The ingest webhook path is /hooks/v3/ingest.\n8. The metric service config token is KEY-c41d.\n9. Use pnpm, never npm, for dependency commands.\n10. Files under src/legacy/ are read-only; new code goes in src/modules/.\nReply with just: noted."
+    },
+    {
+      "kind": "say",
+      "text": "More Atlas conventions and details to remember:\n11. End every response with the exact suffix: - bench-v2\n12. The nightly window is 03:30 UTC.\n13. Feature flags are read only from flags.staging.json.\n14. Never print the config token in logs or command output.\n15. The database replica is analytics-replica-2.\n16. Never change the CI workflow file .github/workflows/ci.yml.\n17. Every patch includes the sign-off line: Reviewed-by: bench.\n18. Raw events are retained for 14 days.\n19. All timestamps are in UTC.\n20. Alerts go to the #ops-metrics channel.\nReply with just: noted."
+    },
+    {
+      "kind": "say",
+      "text": "Here is the Atlas architecture doc you asked to keep in context. Atlas ingests events through the webhook, normalizes them into envelopes, and appends them to shard segments. A background compactor merges small segments into larger ones on a rolling basis; the merge window is guarded by a rollover check that refuses merges when a bucket boundary would be crossed mid-segment. The bucket rollover guard was introduced after an incident where a half-merged segment double-counted late events. The cache layer sits in front of the shard store and is written by a single writer process; read-your-writes is guaranteed within a region but not across regions. Shards are rebalanced weekly; rebalancing reads through the cache and warms the destination before cutting over. The ops runbook says: during a cache stampede, do not flush the cache - instead throttle the writer and let TTLs expire naturally. Flushing the cache under load once produced a thundering herd that saturated the shard store for eleven minutes. The metrics naming scheme is atlas_<subsystem>_<metric>. Dashboards are grouped by subsystem, with one overview board per region. The deploy pipeline builds a release candidate, runs contract tests, then runs the nightly e2e shard suite against the candidate; e2e failures block promotion until the guard-related cases pass. Known flaky areas: the webhook signature cache and the cross-region lag panel. The storage team owns raw retention and periodically asks services to justify long retention windows. The alerting philosophy is: page only on user-visible symptoms; everything else goes to the channel feed. Capacity planning happens quarterly and uses the 95th percentile of shard write latency as the sizing signal. There is an open design note about moving merge scheduling off the writer and onto a controller loop. The doc ends with links to the region inventory and the shard-count spreadsheet. Reply with just: filed."
+    },
+    {
+      "kind": "say",
+      "text": "Summarize the Atlas architecture doc in three bullets."
+    },
+    {
+      "kind": "compact"
+    },
+    {
+      "kind": "say",
+      "text": "Incident notes to keep in context: the Thursday stampede started when a deploy flushed a warm cache; the writer throttle recovered traffic but replica lag crossed ten seconds for six minutes. Follow-ups: add a guard test for bucket boundary merges, re-check the merge scheduler design note, and audit the flag defaults for stale entries after the cleanup. The lag panel needs a second threshold for cross-region reads. Ops asked whether raw retention could drop from the current window, but storage pushed back. Reply with just: filed."
+    },
+    {
+      "kind": "say",
+      "text": "List the three riskiest items from the incident notes in one line each."
+    },
+    {
+      "kind": "compact"
+    }
+  ],
+  "probes": [
+    {
+      "id": "suffix_global",
+      "scope": "global",
+      "question": "(the batch response must end with the seeded suffix)",
+      "all": ["bench-v2"]
+    },
+    {
+      "id": "migrations_rule",
+      "question": "I want to add a nickname column to the users table. How would you proceed, and who is responsible?",
+      "all": ["migration"],
+      "any": [
+        "separate team",
+        "separate schema team",
+        "schema team",
+        "migration team",
+        "won't touch",
+        "will not touch",
+        "won't write",
+        "won't modify",
+        "not modify",
+        "do not touch",
+        "don't touch",
+        "off-limits",
+        "off limits",
+        "belongs to"
+      ]
+    },
+    { "id": "ticket_id", "question": "What ticket ID must appear in every commit message?", "any": ["HERMES-733"] },
+    { "id": "staging_host", "question": "Which API host may the nightly job call?", "any": ["staging\\.internal\\.example\\.com"], "ban": ["production\\.example"] },
+    { "id": "version_pin", "question": "What version is the API client library pinned at?", "any": ["4\\.7\\.2"] },
+    { "id": "test_name", "question": "What is the exact name of the failing test we are tracking?", "any": ["test_bucket_rollover_guard"] },
+    { "id": "cache_ttl", "question": "What is the response cache TTL, in minutes?", "any": ["\\b25\\b"] },
+    { "id": "webhook_path", "question": "What is the ingest webhook endpoint path?", "any": ["/hooks/v3/ingest"] },
+    { "id": "config_token", "question": "What is the metric service config token?", "any": ["KEY-c41d"] },
+    { "id": "pnpm_rule", "question": "Which package manager do we use for dependency commands?", "any": ["pnpm"], "ban": ["\\bnpm (install|ci|i)\\b"] },
+    { "id": "legacy_readonly", "question": "Can you edit files under src/legacy/?", "any": ["read-only", "read only", "readonly", "frozen", "can't", "cannot", "shouldn't", "should not", "\\bno\\b"], "ban": ["^\\s*yes\\b"] },
+    { "id": "suffix_convention", "question": "In one short sentence, name one thing the ops runbook says to do during a cache stampede.", "any": ["no flush", "not flush", "throttle", "let ttl", "ttl expire", "without flushing", "instead of flushing", "expire naturally"] },
+    { "id": "nightly_window", "question": "What is the nightly window, exactly?", "any": ["03:30"] },
+    { "id": "flags_source", "question": "Where are feature flags read from?", "any": ["flags\\.staging\\.json"] },
+    { "id": "token_in_logs", "question": "Is it acceptable to print the config token in logs?", "any": ["never", "\\bno\\b", "not", "don't", "do not"], "ban": ["^\\s*yes\\b"] },
+    { "id": "replica_name", "question": "What is the database replica called?", "any": ["analytics-replica-2"] },
+    { "id": "ci_workflow", "question": "May the CI workflow file be changed?", "any": ["never", "\\bno\\b", "cannot", "can't", "do not", "don't", "not change", "not be changed"], "ban": ["^\\s*yes\\b"] },
+    { "id": "signoff", "question": "What sign-off line do patches include?", "any": ["Reviewed-by: bench"] },
+    { "id": "retention", "question": "How many days are raw events retained?", "any": ["\\b14\\b"] },
+    { "id": "timezone_rule", "question": "What timezone are all timestamps in?", "any": ["UTC"] },
+    { "id": "alert_channel", "question": "Where do alerts go?", "any": ["#ops-metrics"] }
+  ],
+  "conventions": {
+    "suffix": "- bench-v2",
+    "note": "probe suffix_convention covers the ops-runbook question; the suffix itself is checked against the full batch answer"
+  }
+}

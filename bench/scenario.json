@@ -44,14 +44,23 @@
       "all": ["migration"],
       "any": [
         "separate team",
+        "separate schema team",
         "migration team",
+        "schema team",
         "not modify",
         "won't modify",
         "will not modify",
         "can't modify",
         "cannot modify",
         "don't touch",
-        "do not touch"
+        "do not touch",
+        "won't touch",
+        "won't write",
+        "will not write",
+        "not write",
+        "off-limits",
+        "off limits",
+        "belongs to"
       ]
     },
     {
