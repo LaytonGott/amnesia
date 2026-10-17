@@ -153,6 +153,43 @@ audit's numbers, not this A/B, are the evidence for loss at that scale.
 Spend: about $5.30 in total. `total_cost_usd` is cumulative across resumes
 and forks, so the runner logs per-call deltas.
 
+### Live re-run with extractor v7 (6 reps per arm)
+
+`node bench/run-ab.mjs --facts 100 --reps 6 --out bench/results/ab-100
+--tag v7 --max-spend 7.5`. Same seeded session, plugin at b338cdc, 12/12
+valid runs, $3.11.
+
+| arm | correct (mean of 100) | lossy runs | facts the summary dropped | carried by block | recalled of carried | recalled of not carried |
+|---|---|---|---|---|---|---|
+| A baseline | 97.0 | 1/6 | 17 | — | — | 0/17 |
+| C plugin | 97.3 | 1/6 | 63 | 54 | **47/54** | 0/9 |
+
+- **The block is the difference on dropped facts.** Pooling every lossy
+  run so far (v3 C3 plus this batch): the agent recalled **52 of 60**
+  dropped facts the block carried (87%). It recalled **1 of 37** dropped
+  facts the block did not carry. It never guessed; misses were "unknown".
+- **C1 shows what a bad summary costs.** Its summary kept only 37 of 100
+  facts, and the block brought the run to 84 correct.
+- **A4 shows the cost without the plugin.** It dropped every file lookup and
+  scored 0 of 17 on them. v7 replays that kind of loss at 17 of 17 offline
+  (see above).
+- **The arm means are nearly equal** (97.0 vs 97.3) because lossy summaries
+  are rare at this scale (2 of 12) and land on either arm at random. The
+  per-fact comparison above is the measure of the plugin. The mean mostly
+  measures summary luck.
+- **The 7 carried-but-missed facts are a context-window problem.** All were
+  versions or ports stated as "For brisk-payouts, the pinned SDK version is
+  5.13.1". The 60-char snippet, centered on the value, cut the service name
+  ("…payouts, the pinned SDK version is 5.13.1"). For ports, the item was the
+  service name and the number sat only in the snippet. The agent couldn't
+  bind the value to its owner and answered "unknown".
+- **Next fix:** bias the snippet left (subject before value), or capture
+  "the X is <value>" prose as a setting. This needs a live re-check, since
+  the offline audit cannot see binding.
+
+Spend across all A/B runs: about $8.40 (smoke $1.75, first 100-fact batch
+$3.54, v7 batch $3.11).
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

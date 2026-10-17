@@ -265,11 +265,18 @@ const probe =
   'or "unknown" if you do not know it. Do not guess. Reply with one JSON object keyed by id.\n' +
   ALL.map((f) => `${f.id}: ${f.q}`).join("\n");
 
-const runsPath = join(OUT, "runs.json");
+// --tag names a fresh batch over the same seeded session (runs-<tag>.json)
+const TAG = opt("tag", "");
+const MAX_SPEND = Number(opt("max-spend", Infinity));
+const runsPath = join(OUT, TAG ? `runs-${TAG}.json` : "runs.json");
 const runs = existsSync(runsPath) ? JSON.parse(readFileSync(runsPath, "utf8")) : [];
 for (let rep = 1; rep <= REPS; rep++) {
   for (const arm of ["A", "C"]) {
     if (runs.some((r) => r.arm === arm && r.rep === rep)) continue;
+    if (spent >= MAX_SPEND) {
+      console.log(`stopping: spent $${spent.toFixed(2)} of the $${MAX_SPEND} cap`);
+      break;
+    }
     console.log(`arm ${arm} rep ${rep}`);
     const plug = arm === "C" ? ["--plugin-dir", PLUGIN] : [];
     const c = claude(["/compact", "--resume", seedId, "--fork-session", ...plug], `compact ${arm}${rep}`);
@@ -315,10 +322,31 @@ for (const arm of ["A", "C"]) {
   const mean = (f) => (rs.reduce((a, r) => a + f(r), 0) / rs.length).toFixed(1);
   md.push(`| ${arm} | ${rs.length} | ${mean((r) => r.correct.length)} | ${mean((r) => r.correct.filter((id) => STATED_IDS.has(id)).length)} | ${mean((r) => r.correct.filter((id) => !STATED_IDS.has(id)).length)} | ${mean((r) => r.inSummary.length)} | ${mean((r) => r.inBlock.length)} | ${mean((r) => r.correct.filter((id) => !r.inSummary.includes(id)).length)} |`);
 }
+// the comparison that matters: recall on the facts each run's summary dropped
+md.push("", "Recall on facts the summary dropped (the only facts the block can affect):", "");
+md.push("| arm | lossy runs | facts dropped | carried by block | recalled | recalled of carried | recalled of not carried |", "|---|---|---|---|---|---|---|");
+for (const arm of ["A", "C"]) {
+  const rs = valid.filter((r) => r.arm === arm);
+  let lossy = 0, dropped = 0, carried = 0, recalled = 0, recCarried = 0, recNot = 0;
+  for (const r of rs) {
+    const lost = ALL.map((f) => f.id).filter((id) => !r.inSummary.includes(id));
+    if (lost.length) lossy++;
+    for (const id of lost) {
+      dropped++;
+      const inB = r.inBlock.includes(id);
+      const ok = r.correct.includes(id);
+      if (inB) carried++;
+      if (ok) recalled++;
+      if (ok && inB) recCarried++;
+      if (ok && !inB) recNot++;
+    }
+  }
+  md.push(`| ${arm} | ${lossy}/${rs.length} | ${dropped} | ${carried} | ${recalled} | ${recCarried}/${carried} | ${recNot}/${dropped - carried} |`);
+}
 md.push("", "Per fact (correct runs / valid runs):", "", "| fact | A | C |", "|---|---|---|");
 for (const f of ALL) {
   const c = (arm) => `${valid.filter((r) => r.arm === arm && r.correct.includes(f.id)).length}/${valid.filter((r) => r.arm === arm).length}`;
   md.push(`| ${f.id} ${f.a} | ${c("A")} | ${c("C")} |`);
 }
-writeFileSync(join(OUT, "summary.md"), md.join("\n") + "\n");
+writeFileSync(join(OUT, TAG ? `summary-${TAG}.md` : "summary.md"), md.join("\n") + "\n");
 console.log("\n" + md.join("\n"));
