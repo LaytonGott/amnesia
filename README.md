@@ -1,21 +1,114 @@
 # amnesia
 
-**Your AI coding agent forgets. Get it back.**
+**When Claude Code compacts a long session, the summary keeps the story and
+drops the specifics. amnesia shows you what was dropped, and puts the exact
+details back.**
 
-When a Claude Code session runs long, the agent quietly replaces your history
-with a summary — hundreds of messages, hundreds of thousands of tokens, gone
-from context. No notice, no receipt. amnesia gives you all four:
+The specifics are the commit you pinned, the port, the env var, the value
+the agent looked up twenty minutes ago. amnesia does two jobs:
 
-1. **The receipt** — see exactly what was forgotten, when, and what it cost you
-2. **`restore`** — recover your dropped prompts (and the summary that replaced them) into a readable file your agent can re-read
-3. **`protect`** — move your dropped rules into `CLAUDE.md` so they survive every future compaction
-4. **`recover`** — bring back tool outputs that were persisted to disk and replaced with a pointer
+- **The receipt** (CLI, free, read-only): for every compaction on your
+  machine, what was replaced, by what summary, and what it cost.
+- **The plugin** (recommended): at each compaction it lets Claude Code
+  write its normal summary, then appends the exact details that summary
+  dropped, right after it, with the words that say what each one belongs to.
+
+## The evidence
+
+All numbers come from benches in this repo you can re-run
+([docs/EFFICACY.md](docs/EFFICACY.md)).
+
+**When the summary loses details, the plugin is what brings them back.** One
+session was seeded with 100 exact facts (~190k tokens), then compacted with a
+summary told to keep almost nothing, and probed with tools off. Same session,
+same model; the arms differ only by the plugin.
+
+| | facts recalled (of 100) |
+|---|---|
+| Claude Code alone | **2** |
+| with the amnesia plugin | **85** (identical in all 4 runs) |
+
+- **The agent recalls what the block carries.** 332 of 336 carried facts.
+- **Without it, the agent says "unknown" rather than guessing.**
+- **The rest is budget.** Most of the 15 missed per run simply didn't fit in
+  the block's ~1.5k-token budget.
+
+**How often summaries lose details depends on session length.**
+- **At ~190k tokens it's rare.** Unforced summaries kept every fact in 17 of
+  20 runs. When they did drop facts, the block carried them and the agent
+  recalled 52 of 60, against 1 of 37 it lacked.
+- **At ~1M tokens loss is the norm.** On 73 real compactions from long
+  sessions, only **19%** of the exact strings in your dropped prompts made it
+  into the summary.
+
+**What summaries keep well: your rules.** About 83% of dropped constraints
+survive. The loss is in the specifics, which is what the plugin targets.
+
+## Install
+
+**The plugin.** In Claude Code (one-step install needs Claude Code 2.1.275
+or later; verified on 2.1.299+):
+
+```
+/plugin install amnesia --marketplace LaytonGott/amnesia
+```
+
+- **From a shell:** `claude plugin install amnesia --marketplace LaytonGott/amnesia`.
+- **In the desktop app:** click + next to the prompt box, then Plugins, Add
+  marketplace with `LaytonGott/amnesia`, then add the plugin.
+- **Org-managed installs:** Claude Code only runs this hook in a plugin
+  your organization lists in managed settings.
+
+**The CLI** (receipts, restore, doctor) needs Node 18+. It isn't on npm yet;
+run it straight from GitHub:
+
+```
+npx github:LaytonGott/amnesia
+```
+
+Below, `amnesia` stands for that command. Check your setup anytime with
+`amnesia doctor`.
+
+**Older Claude Code** without hooks-module plugins: `amnesia install` wires
+command hooks instead. They snapshot your prompts before each compaction and
+re-inject the most recent ones on your next prompt. That's weaker than the
+plugin: it covers your prompts only, and it lands a turn late. If the plugin
+is active, `install` skips the hooks and `doctor` warns when both are on.
+
+## What the plugin adds
+
+Right after Claude Code's summary, in the compacted context itself:
+
+```
+[amnesia] Exact details the summary above dropped, verbatim from the replaced
+history. For reference only: newer instructions win, and do not redo actions
+that were already completed.
+- For brisk-payouts, the pinned SDK version is 5.13.1
+- settlement_retry_timeout_ms = 7350
+- E-LEDGER-4471 — "The only FATAL is `E-LEDGER-4471` (line 700)…"
+- 0ef02c3 — "merged as 0ef02c3 after review"
+```
+
+How it picks what to add:
+- **What it looks for:** settings, paths, URLs, hashes, versions, tickets,
+  env vars and @handles.
+- **What ranks first:** what you or the agent wrote, ahead of tool output.
+  Output of tools that only read files ranks last, since it can be read
+  again.
+- **What it leaves out:** anything the summary already has.
+- **The budget:** ~6,000 chars, about 1.5k tokens, added to context after
+  each compaction.
+
+It never changes the summary, and on any failure Claude Code's own result
+stands. Design and measurements: [docs/DESIGN-compact-hook.md](docs/DESIGN-compact-hook.md).
+
+## The receipt
 
 ```
   amnesia · compaction receipt for claude-code
   my-project/5fdbd371
   ────────────────────────────────────────────────────────────────
-  event 1/1 2026-08-18 20:23 · trigger auto
+  event 1/1 2026-08-18 20:23 UTC · trigger auto
 
    context     998,312 → 31,348 tokens   (96.9% dropped)
    dead time   1m 56s
@@ -32,181 +125,70 @@ from context. No notice, no receipt. amnesia gives you all four:
    03:24  user  Audit only. Do not modify code. …
 ```
 
-## Usage
+## Commands
 
 ```
-npx amnesia-cli                          scan all sessions for compaction events
-npx amnesia-cli <session-id>             full receipt for one session
+amnesia                          scan all sessions for compaction events
+amnesia <session-id>             full receipt for one session
+amnesia card [<session-id>]      shareable receipt card (HTML)
+amnesia codex [<session-id>]     the same for Codex CLI sessions
 
-npx amnesia-cli restore                  recover the most recent dropped history
-npx amnesia-cli restore <session-id>     recover a specific session's dropped history
-npx amnesia-cli restore --all            recover every compaction in a session
+amnesia restore [<session-id>]   write your dropped prompts + the summary to a file
+amnesia restore --all            every compaction in a session
 
-npx amnesia-cli protect                  show constraints that were dropped in this project
-npx amnesia-cli protect --write          write them into CLAUDE.md (marked section, safe to re-run)
-npx amnesia-cli protect <session-id>     constraints dropped in that session's project
+amnesia doctor                   check the plugin or the hooks are active
+amnesia install | uninstall      command-hook fallback for older Claude Code
+amnesia home                     where amnesia keeps its files
 
-npx amnesia-cli recover                  recover tool outputs persisted in this project's latest session
-npx amnesia-cli recover <session-id>     recover a specific session's persisted outputs
+amnesia protect [--write]        pin dropped rules into CLAUDE.md (see below)
+amnesia recover [<session-id>]   copy tool outputs Claude Code persisted to disk
 
-npx amnesia-cli codex                    scan Codex CLI sessions for compaction
-npx amnesia-cli codex <session-id>       compaction receipt for a Codex session
-
-npx amnesia-cli card                     shareable receipt card for the latest compaction (HTML)
-npx amnesia-cli card <session-id>        card for a specific session
-
-npx amnesia-cli home                     show where amnesia keeps its files
-npx amnesia-cli doctor                   check hooks are installed and working
-
-npx amnesia-cli install                  wire Claude Code hooks: snapshot before compaction,
-                                         re-inject lost messages after
-npx amnesia-cli uninstall                remove the hooks
-
-npx amnesia-cli --json                   machine-readable output
-npx amnesia-cli --root <dir>             use a different projects root
+--json                           machine-readable output
+--root <dir>                     a different projects root
 ```
 
-### restore
+**restore.** Claude Code keeps the full history in the session file; it just
+stops loading it. `restore` writes the prompts you wrote before each
+compaction, and the summary that replaced them, to
+`~/.claude/amnesia/<project>/`, with one line to paste back to your agent.
+The summary itself now ends with the transcript path too.
 
-Dropped content is not gone while the session file is still on disk — Claude
-Code keeps the full history there, it just stops loading it into context.
-`restore` extracts the prompts you wrote before each compaction, plus the
-summary that replaced them, into a markdown file (default
-`~/.claude/amnesia/<project>/restored-<id>.md`) and prints one line to paste
-back to your agent:
+**protect** is a sharp tool. It keyword-matches constraint-like sentences
+from your dropped prompts and, with `--write`, pins them into a marked
+section of the session's project `CLAUDE.md`. Pinned rules apply to every
+future session there, so drop one-off instructions ("audit only today")
+before writing. Summaries already keep most rules.
 
-```
-Read `C:\Users\you\.claude\amnesia\...\restored-5fdbd371-2026-10-15-14-02.md` — this is context you lost to compaction.
-```
-
-### protect
-
-Summaries keep most rules — on 81 real compactions about 83% of dropped
-constraints still appeared in the summary ([docs/EFFICACY.md](docs/EFFICACY.md)) —
-but the rest erode, more so at extreme compression. `CLAUDE.md` survives
-compaction (Claude Code re-injects it after every compact). `protect` scans
-your dropped prompts, finds constraint-like sentences (keyword-matched, so
-review the list), and writes them into a clearly marked section of the
-project's `CLAUDE.md`. Dry-run by default; `--write` applies. Re-running
-updates the section in place. Candidates the compaction summary demonstrably
-failed to preserve are flagged — your highest-value pins are visible at a
-glance.
-
-`protect` is the one command that writes inside a project. The target is the
-directory the session was recorded in (read from the session file), not your
-shell's current directory; if that can't be determined, `--write` refuses
-unless you pass `--out <path>`. Pinned rules apply to every future session in
-that project, so drop one-off instructions before writing.
-
-### recover
-
-When a tool output is too large, Claude Code saves the full output to disk
-(`<session>/tool-results/`) and leaves only a pointer and a short preview in the
-conversation:
-
-```
-<persisted-output>
-Output too large (46.8KB). Full output saved to: …\tool-results\biatg8u3p.txt
-Preview (first 2KB): …
-```
-
-The same happens to results later cleared by micro-compaction. `recover` finds
-every pointer in a session, copies the full outputs into
-`~/.claude/amnesia/<project>/recovered/<session>/`, and writes a `MANIFEST.md`
-mapping each output
-to its tool call — with a paste-line so your agent can read them again.
-Outputs whose files were pruned from disk are listed as unrecoverable. Only
-files inside a session's own `tool-results/` directory are copied; a pointer
-naming any other path (for example, one quoted inside fetched web content) is
-listed as rejected and left alone.
-
-### codex
-
-Codex CLI keeps its own session journal (`~/.codex/sessions/**/rollout-*.jsonl`)
-with a different compaction model: every compaction is journaled as a
-`compacted` event containing the replacement context, the pre-compaction token
-usage, and a window chain (`window_number`). `amnesia codex` scans those
-sessions and renders the same kind of receipt:
-
-```
-  event 1/4 2026-10-08 00:55 · window 1
-
-   context     237,614 → 38,816 tokens (window 258,400)   (83.7% dropped)
-   dead time   1m 35s
-   replaced    112 messages → 9 retained
-```
-
-`amnesia codex` lists every Codex session with compaction; `amnesia codex
-<session-id>` shows the per-event receipts. Synthetic injections (AGENTS.md
-blocks, app messages) are excluded from drop counts.
-
-### card
-
-`amnesia card` writes a screenshot-ready receipt (self-contained HTML) for the
-latest compaction in a session: the token drop, the freeze time, and the first
-dropped prompts. Open it in a browser, screenshot it, post it — the receipt is
-the point.
-
-### install (automatic mode — recommended)
-
-`amnesia install` wires amnesia into Claude Code's own hook system. From then
-on, forgetting heals itself:
-
-- **PreCompact** — before the agent forgets anything, every prompt you wrote
-  in the session (plus keyword-flagged constraints) is saved to
-  `~/.claude/amnesia/<project>/snapshots/`. Assistant replies and tool
-  outputs are not copied; they stay in Claude Code's own session file.
-- **PostCompact** — after compaction fires, the exact set of your prompts
-  that were dropped is computed (the same reconstruction the receipts use —
-  no heuristics) and the most recent ~1,500 tokens of them are queued.
-- **UserPromptSubmit** — on your very next prompt, those lost prompts are
-  injected back into the live session (very long ones shortened to fit), with
-  one rule attached: *anything here still applies unless you have since been
-  told otherwise — newer instructions always win*. No keyword matching decides
-  what your rules are; the agent judges from the real messages.
-
-Everything amnesia writes lives under `~/.claude/amnesia/` (override with the
-`AMNESIA_HOME` env var) — nothing lands inside your project or your git repo,
-except `CLAUDE.md` when you run `protect --write`, and files you point `--out`
-at. `amnesia home` prints the exact paths.
-
-Check the setup anytime with `amnesia doctor`: it verifies the settings file
-parses, all three hooks are registered, and the node + amnesia paths the hooks
-point at still exist and respond. If you move the folder or change Node, doctor
-tells you to re-run `install` instead of hooks failing silently.
-
-Your `settings.json` is backed up before any change, only the amnesia hook
-entries are touched, and `amnesia uninstall` removes them cleanly.
+**recover** copies tool outputs Claude Code persisted to disk
+(`<session>/tool-results/`) into one folder with a manifest. It only copies
+files inside a session's own `tool-results/` directory.
 
 ## How it works
 
-Claude Code stores every session as JSONL at `~/.claude/projects/`. Compaction
-events are recorded inline (`compact_boundary` system events) with token counts,
-duration, and the set of messages kept verbatim. amnesia computes what was
-replaced, reads the summary that took its place, and can recover the dropped
-messages. Resumed sessions that start post-compaction are followed back to the
-originating session file where the history lives.
+Claude Code stores every session as JSONL under `~/.claude/projects/`.
+Compactions are recorded inline as `compact_boundary` events: token counts,
+duration, and the messages kept verbatim. amnesia reconstructs what each
+compaction replaced and reads the summary that took its place. The plugin
+hooks Claude Code's `session.compact` event, calls Claude Code's own
+compaction first, and appends to the result.
 
-Full decoded map of all five forgetting mechanisms, the boundary schema,
-persisted-output format, and hook events: **[docs/MECHANISMS.md](docs/MECHANISMS.md)**.
-
-- Also reads Codex CLI session journals (`amnesia codex`).
-- Reads only your local files. Nothing leaves your machine. No network, no deps.
-- Requires Node 18+.
-- Every scan reports unrecognized journal entries, so upstream format drift is
-  loud instead of silent. To verify amnesia with your own agent:
-  **[docs/VERIFICATION.md](docs/VERIFICATION.md)**.
-- Verified against Claude Code 2.1.x session formats (CLI and desktop app)
-  and Codex CLI rollout journals (Oct 2026).
+- Reads only your local files. No network, no dependencies.
+- Everything amnesia writes lives under `~/.claude/amnesia/` (`AMNESIA_HOME`
+  overrides it). The exceptions are `CLAUDE.md` when you run
+  `protect --write`, and files you point `--out` at.
+- Your `settings.json` is backed up before any change, and only amnesia's
+  entries are touched.
+- Every scan reports unrecognized journal entries, so format drift is loud.
+  More: [docs/MECHANISMS.md](docs/MECHANISMS.md),
+  [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Roadmap
 
-- [x] Codex CLI session support (scan + receipts)
+- [x] Receipts for Claude Code and Codex CLI
+- [x] Compaction plugin: exact details appended after the summary
+- [ ] Publish the CLI to npm
+- [ ] Natural ~1M-token behavioral test
 - [ ] Gemini CLI / opencode session support
-- [x] PreCompact hook: auto-archive before every compaction fires
-- [x] Recovery of persisted tool outputs (oversized and cleared results)
-- [x] Shareable receipt cards (`amnesia card`, HTML)
-- [ ] Cost view (cache read/write tax per compaction)
 
 ## License
 
