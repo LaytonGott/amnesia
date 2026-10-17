@@ -42,7 +42,14 @@ an agent using amnesia's recall tool.
 What amnesia adds over that:
 - **Lost details shown unasked.** The block puts them in front of the agent
   before it realizes they're missing, which is the case the transcript
-  route can't cover.
+  route can't cover. Measured with tools on: asked only to "write
+  release/deploy-staging.sh", the agent alone used 0 of 30 stated details.
+  It wrote generic scripts and said the details didn't exist, and never
+  searched the transcript. With the plugin it used 22 of 30. Neither arm
+  invented a value.
+- **Less searching when it does know.** When a task names the values it
+  needs, both arms get them all, but the plugin arm used 6 tool calls to
+  the plain arm's 42, at half the spend.
 - **Setups where the transcript isn't readable.**
 - **No transcript path needed.** Recall searches without the agent knowing
   where the session file is, and returns ranked snippets, not JSONL lines.

@@ -302,8 +302,8 @@ Where amnesia still adds something an agent with Grep lacks:
 - **Details the agent doesn't know it lost.** Recall and Grep both need the
   agent to realize something is missing and go looking. Here it was asked
   directly about specific values. The block is the only part that puts lost
-  details in front of the agent unasked, and this bench does not measure
-  how often unasked loss leads an agent astray.
+  details in front of the agent unasked. This bench doesn't measure what
+  unasked loss does; the next one does: 0/30 vs 22/30.
 - **Not tool results Claude Code cleared, as far as we've seen.** An earlier
   draft said the transcript keeps only a placeholder for those, and that
   this session had 3. That was wrong: the 3 were results whose own text
@@ -318,6 +318,68 @@ Where amnesia still adds something an agent with Grep lacks:
   escaped JSON lines. In this test that made no difference to accuracy.
 
 Spend: $1.06.
+
+### Unasked: does the block change the work itself? (plugin 0.8.1)
+
+Every test above asks the agent about the lost details. The failure that
+matters is different: after compaction the agent does ordinary work and
+never learns that something it needs was lost. `bench/run-unasked.mjs`
+measures that.
+
+Setup:
+- **Session and summary:** the same seeded ~190k-token session as above,
+  compacted with the same lossy summary.
+- **Arms:** A is Claude Code alone, with no plugin. C adds the plugin at its
+  defaults (6,000-char block, recall on).
+- **Tools:** Read, Grep, Glob, Write and Edit, so the transcript route
+  stays open.
+- **Runs:** 3 compactions per arm, each followed by two tasks. The tasks
+  never mention a compaction, lost context, or recalling anything.
+
+**Task 1, slots named:** "create release/release.env with RELEASE_COMMIT,
+DEPLOY_REGION, … using the values we settled on." 20 slots, every value
+stated earlier in the conversation and in no project file.
+
+| arm | correct | wrong | transcript searches | tool calls | task spend |
+|---|---|---|---|---|---|
+| Claude Code alone | 60/60 | 0 | 36 | 42 | $0.56 |
+| with amnesia | 60/60 | 0 | 0 | 6 | $0.29 |
+
+When the task names what it needs, the agent knows it is missing something
+and searches the transcript; it gets everything. The block makes that
+unnecessary: 7x fewer tool calls, half the spend.
+
+**Task 2, nothing named:** "Write release/deploy-staging.sh for the
+ledger-holds release." Scored on 10 details a correct script needs:
+release commit, feature toggle, staging port, ticket, region, pydantic pin,
+artifact URI, next migration, status page, on-call. Each scores *correct*
+(the stated value is in the script), *wrong* (a different value of the same
+shape) or *absent*.
+
+| arm | correct | wrong | absent | transcript searches |
+|---|---|---|---|---|
+| Claude Code alone | **0/30** | 0 | 30 | 0 |
+| with amnesia | **22/30** | 0 | 8 | 0 |
+
+- **Without the block, the agent never looked.** All three scripts were
+  generic, with required inputs (`${REGION:?}`) and invented infrastructure
+  (ssh + systemd in one, kubectl in another). Each reply said the details
+  weren't available, e.g. "the project has no ledger-holds deploy details
+  for me to use", when they had been stated earlier in the conversation.
+  This is the case the transcript route can't cover: nothing told the agent
+  to search.
+- **With the block, the scripts carried the release's own values:** the
+  pinned commit, region, port, artifact bucket, migration and pydantic pin,
+  plus feature-flag keys the agent had read from files before the
+  compaction.
+- **Neither arm invented a value.** The harm without the block was not a
+  wrong port but a script that didn't do the release you described, along
+  with a confident claim that the details didn't exist.
+
+Limits: one seeded session, a forced lossy summary (unforced summaries at
+this size usually keep these facts), Sonnet, 3 runs per arm, and scoring by
+pattern for 10 facts. Paths or tools the agent made up outside those 10 are
+not counted. Spend: $6.30, smoke run included.
 
 ## Known limits of this bench
 
