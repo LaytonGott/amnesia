@@ -65,6 +65,7 @@ test("protect dry-run lists constraints without writing", () => {
   ]);
   assert.ok(out.includes("Never import the lobby module"));
   assert.ok(out.includes("dry run"));
+  assert.ok(out.includes("absent from their replacement summaries"));
   assert.equal(existsSync(target), false);
 });
 

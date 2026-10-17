@@ -168,6 +168,28 @@ const CONSTRAINT_RE =
   /\b(never|don'?t|do not|must not|must be|must remain|always|only|avoid|make sure|be sure|remember|important|critical|non-negotiable|ensure|required to|audit only|keep .{0,30} (?:separate|read-only|intact)|leave .{0,20} alone)\b/i;
 const QUESTION_START =
   /^(how|what|why|when|where|who|can|could|should|would|is|are|does|do|did|will|shall)\b/i;
+const CONSTRAINT_STOP = new Set(
+  ("this that with from your have will what when then they them there their about would could should " +
+    "because into over under more most some such only also than once here where which while during " +
+    "before after above below between both each few other same very just like need make sure want know " +
+    "dont wont cant isnt arent doesnt didnt without being been").split(/\s+/)
+);
+
+function contentWords(s) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 5 && !CONSTRAINT_STOP.has(w));
+}
+
+function materiallyAbsent(text, summaryLower) {
+  if (!summaryLower) return null;
+  const words = contentWords(text);
+  if (words.length === 0) return false;
+  const missing = words.filter((w) => !summaryLower.includes(w));
+  return missing.length / words.length > 0.5;
+}
 
 export function extractConstraints(prompts) {
   const out = [];
@@ -202,7 +224,7 @@ function updateClaudeMd(path, constraints) {
     START,
     "## Constraints recovered by amnesia",
     "",
-    "_Rules dropped from the agent's context during compaction. These keep applying._",
+    "_Rules dropped from the agent's context during compaction. They keep applying unless newer instructions supersede them._",
     "",
     ...constraints.map((c) => `- ${c.text}`),
     END,
@@ -294,11 +316,13 @@ export async function runProtect({
     events += h.boundaries.length;
     for (let i = 0; i < h.boundaries.length; i++) {
       const dropped = droppedForBoundary(h, i);
+      const summaryLower = (h.boundaries[i].summary || "").toLowerCase() || null;
       for (const c of extractConstraints(dropped)) {
         candidates.push({
           ...c,
           session: f.session,
           boundaryTs: h.boundaries[i].timestamp,
+          lost: materiallyAbsent(c.text, summaryLower),
         });
       }
     }
@@ -337,9 +361,18 @@ export async function runProtect({
   unique.slice(0, 40).forEach((c, i) => {
     console.log(`  ${String(i + 1).padStart(3)}. ${c.text}`);
     console.log(
-      style.dim(`       from ${c.session.slice(0, 8)} \u00b7 ${localTime(c.boundaryTs)}`)
+      style.dim(
+        `       from ${c.session.slice(0, 8)} \u00b7 ${localTime(c.boundaryTs)}` +
+          (c.lost === true ? " \u00b7 absent from its summary" : "")
+      )
     );
   });
+  const lostCount = unique.filter((c) => c.lost === true).length;
+  console.log(
+    style.dim(
+      `  ${unique.length} candidate(s) \u00b7 ${lostCount} absent from their replacement summaries`
+    )
+  );
   console.log("");
 
   const target = outPath

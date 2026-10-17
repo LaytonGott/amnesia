@@ -82,9 +82,10 @@ Read `C:\Users\you\.claude\amnesia\...\restored-5fdbd371-2026-10-15-14-02.md` �
 Summaries drop rules first — "audit only," "never import X," "keep them
 separate." But `CLAUDE.md` survives compaction (Claude Code re-injects it after
 every compact). `protect` scans your dropped prompts, finds constraint-like
-sentences, and writes them into a clearly marked section of your project's
+sections, and writes them into a clearly marked section of your project's
 `CLAUDE.md`. Dry-run by default; `--write` applies. Re-running updates the
-section in place.
+section in place. Candidates the compaction summary demonstrably failed to
+preserve are flagged — your highest-value pins are visible at a glance.
 
 ### recover
 
