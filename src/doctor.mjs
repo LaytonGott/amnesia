@@ -60,7 +60,7 @@ export function runDoctor({ settingsPath } = {}) {
     }
   }
 
-  const foundCommands = [];
+  const commandsByEvent = [];
   if (settings) {
     const hooks =
       settings.hooks && typeof settings.hooks === "object"
@@ -73,7 +73,7 @@ export function runDoctor({ settingsPath } = {}) {
       if (entry) {
         for (const h of entry.hooks) {
           if (h.command && h.command.includes("amnesia")) {
-            foundCommands.push(h.command);
+            commandsByEvent.push({ event, command: h.command });
           }
         }
       } else {
@@ -91,58 +91,73 @@ export function runDoctor({ settingsPath } = {}) {
     }
   }
 
-  if (foundCommands.length > 0) {
-    const parsed = parseHookCommand(foundCommands[0]);
+  const pairs = new Map();
+  const malformed = new Set();
+  for (const { event, command } of commandsByEvent) {
+    const parsed = parseHookCommand(command);
     if (!parsed) {
+      malformed.add(command);
+      continue;
+    }
+    const key = `${parsed.nodePath}\u0000${parsed.binPath}`;
+    if (!pairs.has(key)) {
+      pairs.set(key, {
+        nodePath: parsed.nodePath,
+        binPath: parsed.binPath,
+        events: [],
+      });
+    }
+    pairs.get(key).events.push(event);
+  }
+  for (const command of malformed) {
+    add(
+      "command",
+      "fail",
+      `unrecognized hook command: ${truncate(command, 70)}`
+    );
+  }
+  for (const { nodePath, binPath, events } of pairs.values()) {
+    const label =
+      pairs.size > 1
+        ? ` (${events[0]}${events.length > 1 ? " \u2026" : ""})`
+        : "";
+    const nodeOk = existsSync(nodePath);
+    add(
+      `node${label}`,
+      nodeOk ? "ok" : "fail",
+      nodeOk ? nodePath : `${nodePath} \u2014 NOT FOUND`
+    );
+    const binOk = existsSync(binPath);
+    if (!binOk) {
       add(
-        "command",
+        `bin${label}`,
         "fail",
-        `unrecognized hook command: ${truncate(foundCommands[0], 80)}`
+        `${binPath} \u2014 NOT FOUND (amnesia moved?)`
       );
+    } else if (!nodeOk) {
+      add(`bin${label}`, "warn", `${binPath} exists, but its node is missing`);
     } else {
-      const nodeOk = existsSync(parsed.nodePath);
-      add(
-        "node",
-        nodeOk ? "ok" : "fail",
-        nodeOk ? parsed.nodePath : `${parsed.nodePath} \u2014 NOT FOUND`
-      );
-      const binOk = existsSync(parsed.binPath);
-      if (!binOk) {
-        add(
-          "bin",
-          "fail",
-          `${parsed.binPath} \u2014 NOT FOUND (amnesia moved?)`
-        );
-      } else if (!nodeOk) {
-        add(
-          "bin",
-          "warn",
-          `${parsed.binPath} exists, but its node is missing`
-        );
-      } else {
-        try {
-          const out = execFileSync(
-            parsed.nodePath,
-            [parsed.binPath, "--version"],
-            { encoding: "utf8", timeout: 5000 }
-          ).trim();
-          const expected = ownVersion();
-          if (out.includes(expected)) {
-            add("bin", "ok", `${parsed.binPath} responds (${out})`);
-          } else {
-            add(
-              "bin",
-              "warn",
-              `responds (${out}) but this copy is ${expected} \u2014 version mismatch`
-            );
-          }
-        } catch (e) {
+      try {
+        const out = execFileSync(nodePath, [binPath, "--version"], {
+          encoding: "utf8",
+          timeout: 5000,
+        }).trim();
+        const expected = ownVersion();
+        if (out.includes(expected)) {
+          add(`bin${label}`, "ok", `${binPath} responds (${out})`);
+        } else {
           add(
-            "bin",
-            "fail",
-            `does not respond: ${truncate(String(e.message || e), 80)}`
+            `bin${label}`,
+            "warn",
+            `responds (${out}) but this copy is ${expected} \u2014 version mismatch`
           );
         }
+      } catch (e) {
+        add(
+          `bin${label}`,
+          "fail",
+          `does not respond: ${truncate(String(e.message || e), 70)}`
+        );
       }
     }
   }

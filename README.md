@@ -143,10 +143,10 @@ on, forgetting heals itself:
   were dropped is computed (the same reconstruction the receipts use — no
   heuristics) and the most recent ~1,500 tokens of them are queued.
 - **UserPromptSubmit** — on your very next prompt, those lost messages are
-  injected back into the live session verbatim, with one rule attached:
-  *anything here still applies unless you have since been told otherwise —
-  newer instructions always win*. No keyword matching decides what your rules
-  are; the agent judges from the real messages.
+  injected back into the live session (very long ones shortened to fit), with
+  one rule attached: *anything here still applies unless you have since been
+  told otherwise — newer instructions always win*. No keyword matching decides
+  what your rules are; the agent judges from the real messages.
 
 Everything amnesia writes lives under `~/.claude/amnesia/` (override with the
 `AMNESIA_HOME` env var) — nothing lands inside your project or your git repo.

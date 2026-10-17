@@ -22,6 +22,7 @@ export const HOOK_EVENTS = [
 ];
 
 const INJECT_MAX_CHARS = 6000;
+const INJECT_MSG_MAX_CHARS = 2000;
 
 export function defaultSettingsPath() {
   const base = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
@@ -234,6 +235,8 @@ export async function hookPostcompact() {
     const input = await readStdinJson();
     const cwd = input.cwd || process.cwd();
     const session = input.session_id || "";
+    const transcript = input.transcript_path;
+    if (!session && !transcript) return;
     const prefix = session.slice(0, 8);
     const dir = join(projectStore(cwd), "snapshots");
 
@@ -256,7 +259,6 @@ export async function hookPostcompact() {
     }
 
     let dropped = [];
-    const transcript = input.transcript_path;
     if (transcript && existsSync(transcript)) {
       try {
         const history = await collectHistory({ path: transcript });
@@ -271,17 +273,19 @@ export async function hookPostcompact() {
 
     const selected = [];
     let chars = 0;
+    let truncated = false;
     for (let i = dropped.length - 1; i >= 0; i--) {
-      const text = (dropped[i].text || "").trim();
+      if (chars >= INJECT_MAX_CHARS) break;
+      let text = (dropped[i].text || "").trim();
       if (!text) continue;
-      if (chars + text.length > INJECT_MAX_CHARS) {
-        if (selected.length === 0) {
-          selected.push({
-            timestamp: dropped[i].timestamp,
-            text: text.slice(0, INJECT_MAX_CHARS) + " \u2026",
-          });
-        }
-        break;
+      if (text.length > INJECT_MSG_MAX_CHARS) {
+        text = text.slice(0, INJECT_MSG_MAX_CHARS) + " \u2026";
+        truncated = true;
+      }
+      const room = INJECT_MAX_CHARS - chars;
+      if (text.length > room) {
+        text = text.slice(0, Math.max(0, room - 2)) + " \u2026";
+        truncated = true;
       }
       selected.push({ timestamp: dropped[i].timestamp, text });
       chars += text.length;
@@ -298,6 +302,7 @@ export async function hookPostcompact() {
             session,
             snapshot,
             messages: selected,
+            truncated,
             droppedCount: dropped.length,
             promptCount,
             trigger: input.trigger || "unknown",
@@ -351,7 +356,9 @@ export async function hookPrompt() {
     const messages = Array.isArray(m.messages) ? m.messages : [];
     if (messages.length > 0) {
       lines.push(
-        "Below are the most recent messages you lost, verbatim (oldest first). Anything instructed there still applies unless you have since been told otherwise \u2014 newer instructions always win."
+        `Below are the most recent messages you lost, ${
+          m.truncated ? "long ones shortened" : "verbatim"
+        } (oldest first). Anything instructed there still applies unless you have since been told otherwise \u2014 newer instructions always win.`
       );
       lines.push("");
       for (const msg of messages) {

@@ -207,6 +207,74 @@ test("prompt hook is silent with no pending injection", () => {
   assert.equal(out, "");
 });
 
+test("injection continues past an oversized newest message", () => {
+  const cwd = join(tmp, "proj-hook5");
+  const sid = "ffffffff-0000-0000-0000-000000000001";
+  const tp = join(tmp, `${sid}.jsonl`);
+  const lines = [
+    JSON.stringify({
+      type: "user",
+      uuid: "q1",
+      message: { role: "user", content: "rule one: keep it read-only" },
+    }),
+    JSON.stringify({
+      type: "user",
+      uuid: "q2",
+      message: { role: "user", content: "rule two: audit only" },
+    }),
+    JSON.stringify({
+      type: "user",
+      uuid: "q3",
+      message: { role: "user", content: "B".repeat(9000) },
+    }),
+    JSON.stringify({
+      type: "system",
+      subtype: "compact_boundary",
+      compactMetadata: {
+        trigger: "auto",
+        preTokens: 1000,
+        postTokens: 100,
+        durationMs: 5,
+        preservedMessages: { uuids: [] },
+      },
+      uuid: "q4",
+    }),
+    JSON.stringify({
+      type: "user",
+      isCompactSummary: true,
+      uuid: "q5",
+      message: { role: "user", content: "Summary: x" },
+    }),
+  ];
+  writeFileSync(tp, lines.join("\n") + "\n");
+  run(["hook", "postcompact"], {
+    input: JSON.stringify({
+      session_id: sid,
+      transcript_path: tp,
+      cwd,
+      trigger: "auto",
+      hook_event_name: "PostCompact",
+    }),
+  });
+  const out = run(["hook", "prompt"], {
+    input: JSON.stringify({
+      session_id: sid,
+      cwd,
+      prompt: "go",
+      hook_event_name: "UserPromptSubmit",
+    }),
+  });
+  const ctx = JSON.parse(out).hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes("rule one: keep it read-only"));
+  assert.ok(ctx.includes("rule two: audit only"));
+  assert.ok(ctx.includes("long ones shortened"));
+});
+
+test("postcompact is silent without any session context", () => {
+  const out = run(["hook", "postcompact"], { input: "{}" });
+  assert.equal(out, "");
+});
+
 test("hooks never fail on garbage input", () => {
   const out = run(["hook", "precompact"], { input: "not json at all" });
   assert.equal(out, "");

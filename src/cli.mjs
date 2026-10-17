@@ -183,7 +183,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.11.0");
+      console.log("amnesia 0.11.1");
       return;
     } else pos.push(a);
   }

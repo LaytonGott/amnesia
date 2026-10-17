@@ -71,6 +71,39 @@ test("doctor detects a dead node path", () => {
   assert.ok(r.out.includes("NOT FOUND"));
 });
 
+test("doctor validates every hook command, not just the first", () => {
+  const s = join(tmp, "settings-mixed.json");
+  const bin = join(HERE, "..", "bin", "amnesia.mjs");
+  const good = (sub) => `"${process.execPath}" "${bin}" hook ${sub}`;
+  writeFileSync(
+    s,
+    JSON.stringify({
+      hooks: {
+        PreCompact: [
+          { matcher: "", hooks: [{ type: "command", command: good("precompact") }] },
+        ],
+        PostCompact: [
+          { matcher: "", hooks: [{ type: "command", command: good("postcompact") }] },
+        ],
+        UserPromptSubmit: [
+          {
+            matcher: "",
+            hooks: [
+              {
+                type: "command",
+                command: `"C:\\nope\\node.exe" "${bin}" hook prompt`,
+              },
+            ],
+          },
+        ],
+      },
+    })
+  );
+  const r = runFailing(["doctor", "--settings", s]);
+  assert.ok(r.failed);
+  assert.ok(r.out.includes("NOT FOUND"));
+});
+
 test("doctor survives unparseable settings", () => {
   const s = join(tmp, "settings-bad.json");
   writeFileSync(s, "{nope");
