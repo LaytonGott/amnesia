@@ -1,46 +1,66 @@
-# amnesia plugin (experimental)
+# amnesia plugin
 
 A Claude Code hooks-module plugin that wraps compaction instead of replacing
-it: it lets Claude Code write its normal summary, then appends one message
-right after it listing the exact strings the summary dropped (paths, commit
-hashes, versions, env vars, identifiers), each with a few words of context.
+it. It lets Claude Code write its normal summary, then appends one message
+right after it with the exact details that summary dropped: settings, paths,
+URLs, hashes, versions, tickets, env vars and @handles, each with the words
+that say what it belongs to.
 
-Design, platform facts, and what the prototype verified:
-[docs/DESIGN-compact-hook.md](../docs/DESIGN-compact-hook.md).
+## Install
 
-## Status
+In Claude Code (one-step install needs 2.1.275 or later; verified on
+2.1.299+):
 
-Prototype. Verified on Claude Code 2.1.302 with two real `/compact` runs and
-the plugin test kit. Not published to a marketplace yet. Known weak spot:
-ranking. On large real sessions, code field names crowd out commits and
-paths (see the design doc).
+```
+/plugin install amnesia --marketplace LaytonGott/amnesia
+```
 
-Limits:
+- **From a shell:** `claude plugin install amnesia --marketplace LaytonGott/amnesia`.
+- **In the desktop app:** click + next to the prompt box, then Plugins, Add
+  marketplace with `LaytonGott/amnesia`, then add the plugin.
 
-- Needs a Claude Code build with hooks modules and the `session.compact`
-  event. Both are in 2.1.299+; the first version that has them is unknown.
-- Does not run where an organization manages Claude Code, unless the
-  organization lists the plugin in managed settings.
-- Skips `precompute` dispatches and subagent compactions.
+## Limits
 
-## Try it in one session (installs nothing)
+- **Org-managed installs:** where an organization manages Claude Code, the
+  `session.compact` hook runs only in plugins the organization lists in
+  managed settings.
+- **Skipped compactions:** `precompute` dispatches and subagent compactions
+  pass through untouched.
+- **Budget:** the block is capped at ~6,000 chars (about 1.5k tokens of
+  context after each compaction).
+
+Measurements, design and platform facts:
+[docs/DESIGN-compact-hook.md](../docs/DESIGN-compact-hook.md) and
+[docs/EFFICACY.md](../docs/EFFICACY.md).
+
+## Develop
+
+Run it in one session without installing:
 
 ```bash
 claude --plugin-dir ./plugin
 ```
 
-## Check it
+Check it:
 
 ```bash
 npm run test:plugin
 ```
 
-That runs `claude plugin validate plugin` and `claude plugin test plugin`.
+That runs `claude plugin validate plugin` and `claude plugin test plugin`;
 `npm test` runs only the CLI's tests.
 
-To see what it would add on your own history (Node 22.18+ or 24), run this.
-It prints timings and the block for the newest compaction in that session:
+Offline benches (Node 22.18+ or 24, no model calls):
 
 ```bash
 node bench/specifics-real.mts ~/.claude/projects/<project>/<session>.jsonl
+node bench/audit-specifics.mts
+node bench/replay-ab.mts bench/results/ab-100 runs-v8stress.json
 ```
+
+- `specifics-real.mts`: timings, plus the block for the newest compaction in
+  one session.
+- `audit-specifics.mts`: scores the block on every real compaction on your
+  machine.
+- `replay-ab.mts`: replays a behavioral A/B run's compactions with the
+  current extractor.
