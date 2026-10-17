@@ -55,6 +55,7 @@ npx amnesia-cli card                     shareable receipt card for the latest c
 npx amnesia-cli card <session-id>        card for a specific session
 
 npx amnesia-cli home                     show where amnesia keeps its files
+npx amnesia-cli doctor                   check hooks are installed and working
 
 npx amnesia-cli install                  wire Claude Code hooks: snapshot before compaction,
                                          re-inject lost messages after
@@ -150,6 +151,11 @@ on, forgetting heals itself:
 Everything amnesia writes lives under `~/.claude/amnesia/` (override with the
 `AMNESIA_HOME` env var) — nothing lands inside your project or your git repo.
 `amnesia home` prints the exact paths.
+
+Check the setup anytime with `amnesia doctor`: it verifies the settings file
+parses, all three hooks are registered, and the node + amnesia paths the hooks
+point at still exist and respond. If you move the folder or change Node, doctor
+tells you to re-run `install` instead of hooks failing silently.
 
 Your `settings.json` is backed up before any change, only the amnesia hook
 entries are touched, and `amnesia uninstall` removes them cleanly.

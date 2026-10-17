@@ -15,7 +15,7 @@ import { extractConstraints } from "./actions.mjs";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
-const HOOK_EVENTS = [
+export const HOOK_EVENTS = [
   { event: "PreCompact", cmd: "precompact" },
   { event: "PostCompact", cmd: "postcompact" },
   { event: "UserPromptSubmit", cmd: "prompt" },
@@ -42,7 +42,7 @@ function hookCommand(cmd) {
   return `${q(process.execPath)} ${q(amnesiaBinPath())} hook ${cmd}`;
 }
 
-function isOurs(entry, cmd) {
+export function isOurs(entry, cmd) {
   return (
     entry &&
     Array.isArray(entry.hooks) &&

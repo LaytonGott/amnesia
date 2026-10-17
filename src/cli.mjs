@@ -28,6 +28,7 @@ import {
   CODEX_ROOT,
 } from "./codex.mjs";
 import { writeCard, cardOutputPath } from "./card.mjs";
+import { runDoctor } from "./doctor.mjs";
 
 function printHelp() {
   console.log(`
@@ -51,6 +52,8 @@ function printHelp() {
     amnesia uninstall [--settings <file>]
                                 remove the amnesia hooks
     amnesia home                show where amnesia keeps its files
+    amnesia doctor [--settings <file>]
+                                check hooks are installed and working
     amnesia --json [<session>]  machine-readable output
     amnesia --root <dir>        use a different projects root
     amnesia --version | --help
@@ -180,7 +183,7 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.10.0");
+      console.log("amnesia 0.11.0");
       return;
     } else pos.push(a);
   }
@@ -194,6 +197,14 @@ export async function main(argv) {
     console.log(style.dim(`  store    ${amnesiaHome()}`));
     console.log(style.dim(`  project  ${projectStore(process.cwd())}`));
     console.log("");
+    return;
+  }
+
+  if (cmd === "doctor") {
+    const result = runDoctor({
+      settingsPath: settingsPath || defaultSettingsPath(),
+    });
+    process.exitCode = result.exitCode;
     return;
   }
 
