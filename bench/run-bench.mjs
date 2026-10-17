@@ -94,6 +94,16 @@ function transcriptFor(projDir, sessionId) {
   );
 }
 
+function modelsInFile(file) {
+  if (!existsSync(file)) return [];
+  const text = readFileSync(file, "utf8");
+  const set = new Set();
+  for (const m of text.matchAll(/"model"\s*:\s*"(claude[^"]+)"/g)) {
+    set.add(m[1]);
+  }
+  return [...set];
+}
+
 function countIn(file, needle) {
   if (!existsSync(file)) return 0;
   const text = readFileSync(file, "utf8");
@@ -171,7 +181,10 @@ for (const arm of ARMS) {
     const tp = transcriptFor(projDir, sessionId);
     const boundaries = countIn(tp, "compact_boundary");
     record.checks.boundaries = boundaries;
-    console.log(`compact: boundaries=${boundaries}`);
+    record.checks.models = modelsInFile(tp);
+    console.log(
+      `compact: boundaries=${boundaries} models=${record.checks.models.join(",")}`
+    );
 
     for (const p of probes) {
       const r = claude(
@@ -255,7 +268,7 @@ lines.push("## Validity checks (per run)");
 lines.push("");
 for (const r of allRuns) {
   lines.push(
-    `- ${r.arm}-${r.run}: boundaries=${r.checks.boundaries} injections=${r.checks.injections} snapshots=${r.checks.snapshots}`
+    `- ${r.arm}-${r.run}: boundaries=${r.checks.boundaries} injections=${r.checks.injections} snapshots=${r.checks.snapshots} models=${(r.checks.models || []).join(",")}`
   );
 }
 writeFileSync(join(RES, "summary.md"), lines.join("\n"));
