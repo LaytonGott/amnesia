@@ -304,9 +304,13 @@ Where amnesia still adds something an agent with Grep lacks:
   directly about specific values. The block is the only part that puts lost
   details in front of the agent unasked, and this bench does not measure
   how often unasked loss leads an agent astray.
-- **Tool results Claude Code cleared.** The transcript stores only the
-  placeholder, so Grep finds nothing. Recall has the original. This session
-  had 3 such results.
+- **Not tool results Claude Code cleared, as far as we've seen.** An earlier
+  draft said the transcript keeps only a placeholder for those, and that
+  this session had 3. That was wrong: the 3 were results whose own text
+  quoted the placeholder string (amnesia's tests and docs). No transcript on
+  the test machine has a real micro-compact event, and every cleared-looking
+  result still holds its full output. Clearing happens in the live context;
+  the transcript keeps the original, so Grep reaches it too.
 - **Places the transcript isn't reachable:** permission rules that deny
   reading `~/.claude`, sandboxes, and setups without file tools. There,
   recall is the only way back.

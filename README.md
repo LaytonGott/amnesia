@@ -43,9 +43,9 @@ What amnesia adds over that:
 - **Lost details shown unasked.** The block puts them in front of the agent
   before it realizes they're missing, which is the case the transcript
   route can't cover.
-- **Tool results Claude Code cleared.** The transcript keeps only a
-  placeholder.
 - **Setups where the transcript isn't readable.**
+- **No transcript path needed.** Recall searches without the agent knowing
+  where the session file is, and returns ranked snippets, not JSONL lines.
 
 Details: [docs/EFFICACY.md](docs/EFFICACY.md).
 
@@ -126,8 +126,8 @@ The block is capped. Recall is not:
 - **What it keeps:** the plugin archives every tool output as it happens,
   and every message a compaction replaces.
 - **What the agent gets:** a tool, `mcp__amnesia__recall`, that searches all
-  of it word for word. That includes tool results Claude Code later cleared
-  for good, which no transcript keeps.
+  of it word for word, including old tool results Claude Code has since
+  cleared from the live context.
 - **Measured:** with a summary that kept nothing and a tiny block, the agent
   answered 0 of 20 exact-detail questions without recall and 20 of 20 with
   it ([docs/EFFICACY.md](docs/EFFICACY.md)).

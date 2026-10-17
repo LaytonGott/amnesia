@@ -1,16 +1,26 @@
 // The archive behind the recall tool: what each compaction dropped and every
 // tool output, as they happen, so the agent can search them later even after
-// Claude Code has summarized them away or cleared old tool results. Pure
-// functions here; register.ts does the I/O through $.fs.
+// Claude Code has summarized them away. Pure functions here; register.ts does
+// the I/O through $.fs.
 
 export type Rec = {
   // 'tool': one tool output as it happened; 'dropped': a message a compaction replaced
   kind: 'tool' | 'dropped';
+  // a tool output: when it ran. A dropped message: when the compaction replaced
+  // it (a hook is not told when a message was written)
   at: number;
   // what the snippet says it came from: a tool name, or user / assistant
   label: string;
   text: string;
+  // a dropped message: its place among the messages that compaction replaced, 1-based
+  seq?: number;
+  of?: number;
 };
+
+// the desktop app's own interface tools (task list, wrap-up, panes, sidebar,
+// windows) answer with acknowledgements, not anything worth searching
+const UI_TOOLS = /^mcp__ccd_(?:turn|view|sidebar|window)__/;
+export const archivable = (tool: string) => !UI_TOOLS.test(tool);
 
 // one archive file holds at most this much text (each $.fs read or write caps at 4 MiB)
 export const MAX_RECORD_CHARS = 200_000;
@@ -23,12 +33,15 @@ const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n) + `\n[… ${
 const SECRETS: [RegExp, string][] = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[private key redacted]'],
   [/\b(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b/g, '[secret redacted]'],
-  [/\b((?:api[_-]?key|secret|token|password|passwd|authorization)["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[^\s"',;]{8,}/gi, '$1[redacted]'],
 ];
+// a value assigned to a secret-ish name; prose and code about these names
+// ("`password=` values", "whole token: config.ts", a regex) are left alone
+const ASSIGNED = /\b((?:api[_-]?key|secret|token|password|passwd|authorization)["']?\s*[:=]\s*["']?)(?:Bearer\s+)?([^\s"',;`/\\[][^\s"',;`]{7,})/gi;
+const secretish = (v: string) => /\d/.test(v) || v.length >= 16;
 export function redact(s: string): string {
   let out = s;
   for (const [re, to] of SECRETS) out = out.replace(re, to);
-  return out;
+  return out.replace(ASSIGNED, (all, key: string, value: string) => (secretish(value) ? `${key}[redacted]` : all));
 }
 
 // tool arguments as one short line (the command, the path, the pattern), without amnesia's own reserved keys
@@ -58,7 +71,9 @@ type Dropped = {
 export function droppedFiles(dropped: readonly Dropped[], at: number): Rec[][] {
   const files: Rec[][] = [[]];
   let size = 0;
+  let seq = 0;
   for (const m of dropped) {
+    seq++;
     const uses = m.toolUses
       .map((u) => `[${u.tool}] ${inputLine(u.input)}${u.text ? '\n' + cap(u.text, 20_000) : ''}`)
       .join('\n');
@@ -68,7 +83,7 @@ export function droppedFiles(dropped: readonly Dropped[], at: number): Rec[][] {
       files.push([]);
       size = 0;
     }
-    files[files.length - 1]!.push({ kind: 'dropped', at, label: m.role, text });
+    files[files.length - 1]!.push({ kind: 'dropped', at, label: m.role, text, seq, of: dropped.length });
     size += text.length;
   }
   return files.filter((f) => f.length > 0);
@@ -126,7 +141,11 @@ export function search(records: readonly Rec[], query: string, limit = 6, maxCha
     const a = Math.max(0, pos - 240);
     const b = Math.min(r.text.length, pos + 420);
     const snippet = (a > 0 ? '…' : '') + r.text.slice(a, b).replace(/\s+/g, ' ').trim() + (b < r.text.length ? '…' : '');
-    const head = r.kind === 'tool' ? `[${r.label} output · ${time(r.at)}]` : `[${r.label} message replaced by a compaction · ${time(r.at)}]`;
+    const place = r.seq && r.of ? ` (${r.seq} of ${r.of})` : '';
+    const head =
+      r.kind === 'tool'
+        ? `[${r.label} output · ${time(r.at)}]`
+        : `[${r.label} message${place}, replaced by the compaction at ${time(r.at)}]`;
     const entry = `${head} ${snippet}`;
     if (used + entry.length > maxChars && out.length > 0) break;
     out.push(entry);
@@ -142,6 +161,6 @@ export function search(records: readonly Rec[], query: string, limit = 6, maxCha
 
 export const RECALL_DESCRIPTION =
   'Search everything earlier in this session, verbatim: messages a context compaction replaced with a summary, ' +
-  'and the full output of every tool call (including results Claude Code later cleared). Use it when you need an ' +
+  'and the full output of every tool call. Use it when you need an ' +
   'exact detail you no longer see: a value, path, command, error message, commit, or what someone said. ' +
   'Query with the distinctive words or strings you remember.';

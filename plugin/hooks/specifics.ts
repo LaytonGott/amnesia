@@ -10,19 +10,20 @@ export type Msg = {
 export const MARKER = '[amnesia]';
 
 export type Kind =
-  | 'setting' | 'url' | 'hash' | 'version' | 'code' | 'handle' | 'path' | 'env' | 'file' | 'quoted' | 'flag' | 'dotted' | 'ident';
+  | 'setting' | 'url' | 'hash' | 'version' | 'code' | 'handle' | 'path' | 'env' | 'branch' | 'file' | 'quoted' | 'flag' | 'dotted' | 'ident';
 
 // what a string is decides most of its rank: a value bound to its key, a
 // commit or a URL cannot be re-derived; a camelCase field name usually can
 // be re-read from the code
 const TIER: Record<Kind, number> = {
-  setting: 5, url: 5, hash: 5, version: 4, code: 4, handle: 4, path: 4, env: 4, file: 3, quoted: 3, flag: 2, dotted: 2, ident: 1,
+  setting: 5, url: 5, hash: 5, version: 4, code: 4, handle: 4, path: 4, env: 4, branch: 3, file: 3, quoted: 3, flag: 2, dotted: 2, ident: 1,
 };
 // "For acme-billing, the staging port is 29860" -> owner "For acme-billing"
 const OWNER = /^((?:For|In|On|At) [^,;:]{2,50}),\s+(.+)$/;
 const PRONOUN =/^(?:it|this|that|there|these|those|which|what|who|he|she|they|we|i|you|here|one|each|all|both|total|count|number)$/i;
 
-const PATH = /(?:[A-Za-z]:)?(?:[\\/]?[\w.@-]+[\\/])+[\w.@-]+/g;
+// never from inside a word: github:owner/repo has no drive b:
+const PATH = /(?<![\w.@-])(?:[A-Za-z]:)?(?:[\\/]?[\w.@-]+[\\/])+[\w.@-]+/g;
 // a slash between words ("deploy/infra") is prose, not a path
 const looksLikePath = (s: string) =>
   /^(?:[A-Za-z]:|[\\/~]|\.{1,2}[\\/])/.test(s) || /\.[A-Za-z0-9]{1,8}$/.test(s);
@@ -33,6 +34,8 @@ type Pattern = {
   re: RegExp;
   // only in what the person or the agent wrote, never in tool traffic
   own?: boolean;
+  // sources it is never read from
+  not?: readonly Source[];
   // kind when found in tool traffic instead (a config dump's key = value is not a decision)
   toolKind?: Kind;
   min?: number;
@@ -58,7 +61,12 @@ const KEY = String.raw`([A-Za-z_][\w.-]*[_.][\w.-]*|[A-Z][A-Z0-9_]{2,})`;
 const keyOk = (k: string) => k.length >= 4 && /[A-Za-z]{2}/.test(k);
 // code defaults and type hints say nothing a summary needs (= None, = bool, = 0.0)
 const TRIVIAL = /^(?:none|null|nil|undefined|true|false|yes|no|bool|str|int|float|string|number|any|object|0|0\.0|1|\[\]|\{\}|""|'')$|\[/i;
-const valueOk = (v: string) => /[A-Za-z0-9]/.test(v) && !TRIVIAL.test(v) && !v.startsWith('//');
+// markdown emphasis (Biggest DROPPED: **f3d9f2e5**) means a label in prose, not a key
+const valueOk = (v: string) => /[A-Za-z0-9]/.test(v) && !TRIVIAL.test(v) && !v.startsWith('//') && !/^[*_]/.test(v);
+// actions.mjs:261 is a file and a line, not a key and a value
+const FILE_KEY = /\.[A-Za-z]{1,6}$/;
+// `—`, `\x1b`: an escape sequence, not a value
+const ESCAPE = /^\\(?:u\{?[0-9A-Fa-f]{2,6}\}?|x[0-9A-Fa-f]{2}|[nrtbfv0])$/;
 
 const PATTERNS: Pattern[] = [
   // `key` is `value` (or a bare value with a digit or symbol: `key` is 7350)
@@ -100,34 +108,44 @@ const PATTERNS: Pattern[] = [
     kind: 'setting',
     toolKind: 'dotted',
     re: new RegExp(String.raw`(?<![\w.-])${KEY}"?\s*(?:=|:)\s*"?([^\s,;\x60'"#]{1,80})`, 'g'),
-    item: (m) =>
-      m[1] && m[2] && keyOk(m[1]) && valueOk(clean(m[2]))
-        ? { s: `${m[1]} = ${clean(m[2])}`, probe: [m[1], clean(m[2])] }
-        : null,
+    item: (m) => {
+      const k = m[1];
+      const v = clean(m[2] ?? '');
+      if (!k || !v || !keyOk(k) || !valueOk(v)) return null;
+      if (FILE_KEY.test(k) && /^\d+(?::\d+)?$/.test(v)) return { s: `${k}:${v}`, kind: 'file' };
+      return { s: `${k} = ${v}`, probe: [k, v] };
+    },
   },
   { kind: 'quoted', own: true, min: 3, re: /`([^`\n]{3,100})`/g, item: (m) => {
     const s = clean((m[1] ?? '').trim());
-    if (s.length < 3 || !detailish(s)) return null;
+    if (s.length < 3 || !detailish(s) || ESCAPE.test(s)) return null;
     return { s, kind: shapeOf(s) ?? (bareName(s) ? 'ident' : 'quoted') };
   } },
   { kind: 'url', re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s)>"'`\]]+/g },
   { kind: 'path', re: PATH },
   { kind: 'file', re: /\b[\w-]+\.(?:ts|tsx|js|mjs|cjs|py|rs|go|java|json|md|yml|yaml|toml|sql|sh|ps1|css|html|txt|lock|ini|env|jsonl)\b/g },
-  { kind: 'dotted', re: /\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b/g },
+  // not a method call (out.push(x), $.ui.status?.()): that is code, read again from the file
+  { kind: 'dotted', re: /\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
   { kind: 'version', re: /\bv?\d+\.\d+\.\d+(?:[-+][\w.]+)?\b/g },
   // hex runs inside a UUID (8-4-4-4-12) are ids, not commits
-  { kind: 'hash', re: /(?<![\w-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w-])/g },
+  // nor a path segment (bundled-skills/2.1.299/1c0faf7d.../plugin-authoring)
+  { kind: 'hash', re: /(?<![\w\\/-])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w\\/-])/g },
   // serials and fingerprints: 6A:3F:91:0C:5D
   { kind: 'hash', re: /(?<![\w:])[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){3,}(?![\w:])/g },
   // tickets and error codes: OPS-77412, E-LEDGER-4471
-  { kind: 'code', re: /\b(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/g },
+  // (not a range in a regex character class: [A-Z0-9-])
+  { kind: 'code', re: /(?<![[\w-])(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b(?![\]\w-])/g },
+  // branches: feat/compact-plugin, fix/audit-bugs (a prefix, then a hyphenated name)
+  { kind: 'branch', re: /(?<![\w.\\/-])[a-z][a-z0-9]*\/[a-z0-9]+(?:-[a-z0-9]+)+(?![\w.\\/-])/g },
   // people and teams: @mkovacs-ledger (not emails, not decorators in code)
   { kind: 'handle', own: true, re: /(?<![\w.@])@[A-Za-z][\w.-]{2,38}(?<![.-])/g },
   { kind: 'flag', re: /(?<![\w-])--[a-z][\w-]{2,}/g },
   { kind: 'env', re: /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g },
   { kind: 'ident', re: /\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]+)+\b/g },
   { kind: 'ident', re: /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g },
-  { kind: 'ident', re: /\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b/g },
+  // hyphenated words: the agent's prose is full of them (real-data, read-only), so only the
+  // person's count, and never a piece of a path or a branch
+  { kind: 'ident', not: ['assistant'], re: /(?<![\w.\\/-])[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?![\w.\\/-])/g },
 ];
 
 // where a string was seen: the person's own words first, tool traffic last,
@@ -201,7 +219,17 @@ function contextOf(text: string, at: number, len: number): string {
   return text.slice(a, b).replace(/\s+/g, ' ').trim();
 }
 
-const clean = (s: string) => s.replace(/[.,:;)\]}'"`*]+$/, '');
+const clean = (s: string) => s.replace(/[.,:;?)\]}'"`*]+$/, '');
+
+// short appears in long as a whole token: config.ts in src/runtime/config.ts, but not --out in --output-format
+function within(short: string, long: string): boolean {
+  for (let i = long.indexOf(short); i >= 0; i = long.indexOf(short, i + 1)) {
+    const before = long[i - 1] ?? ' ';
+    const after = long[i + short.length] ?? ' ';
+    if (!/[\w-]/.test(before) && !/[\w-]/.test(after)) return true;
+  }
+  return false;
+}
 
 export function collect(dropped: readonly Msg[]): Map<string, Hit> {
   const hits = new Map<string, Hit>();
@@ -215,6 +243,7 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
       const own = OWN.has(from);
       for (const pat of PATTERNS) {
         if (pat.own && !own) continue;
+        if (pat.not?.includes(from)) continue;
         // a value the agent looked up and reported is as settled as one the person typed
         const w = pat.own && pat.kind === 'setting' ? WEIGHT.user : WEIGHT[from];
         const { re } = pat;
@@ -291,18 +320,18 @@ export function specificsBlock(
     .slice(0, 500);
   // a string inside a longer one that ranks at least as high (config.ts in src/runtime/config.ts) adds nothing
   const top = missing.filter(
-    (h) => !missing.some((o) => o.score >= h.score && o.s.length > h.s.length && o.s.includes(h.s)),
+    (h) => !missing.some((o) => o.score >= h.score && o.s.length > h.s.length && within(h.s, o.s)),
   );
 
   const head =
     `${MARKER} Exact details the summary above dropped, verbatim from the replaced history. ` +
     'For reference only: newer instructions win, and do not redo actions that were already completed.' +
     (recall ? ' Anything else from before is searchable, verbatim, with the amnesia recall tool.' : '');
-  const lines: { owner?: string; text: string }[] = [];
+  const lines: { owner?: string; s?: string; text: string }[] = [];
   const chosen: string[] = [];
   let used = head.length;
   for (const h of top) {
-    if (chosen.some((c) => c.includes(h.s))) continue;
+    if (chosen.some((c) => within(h.s, c))) continue;
     // settings that share an owner ("For acme-billing, ...") share one line:
     // each extra one costs only its own words
     const own = h.kind === 'setting' ? h.s.match(OWNER) : null;
@@ -320,10 +349,18 @@ export function specificsBlock(
     const ctx = h.context.length > 80 ? h.context.slice(0, 77) + '...' : h.context;
     // key = value already says what the value is; context would only spend budget
     const line = ctx && ctx !== h.s && h.kind !== 'setting' ? `- ${h.s} — "${ctx}"` : `- ${h.s}`;
-    if (used + line.length + 1 > budgetChars) continue;
-    lines.push({ text: line });
+    // a shorter item already chosen that this one contains (--marketplace in the whole
+    // install command) gives its place back
+    const inside = lines.filter((l) => l.s !== undefined && within(l.s, h.s));
+    const refund = inside.reduce((n, l) => n + l.text.length + 1, 0);
+    if (used - refund + line.length + 1 > budgetChars) continue;
+    for (const l of inside) {
+      lines.splice(lines.indexOf(l), 1);
+      chosen.splice(chosen.indexOf(l.s ?? ''), 1);
+    }
+    lines.push({ s: h.s, text: line });
     chosen.push(h.s);
-    used += line.length + 1;
+    used += line.length + 1 - refund;
   }
   if (lines.length === 0) return null;
   return {

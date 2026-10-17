@@ -99,7 +99,7 @@ test('what a compaction drops is archived and recallable', async ($, on) => {
   const found = await $.tool.call({ tool: 'mcp__amnesia__recall', query: 'canary weight' } as never);
   const text = String((found as { result?: unknown }).result);
   expect(text).toContain('37 percent');
-  expect(text).toContain('replaced by a compaction');
+  expect(text).toContain('replaced by the compaction at');
 });
 
 test('with recall turned off nothing is archived', { options: { recall: false } }, async ($, on) => {
@@ -121,4 +121,42 @@ test('secrets are redacted before anything is archived', () => {
     expect(out.includes(secret)).toBe(false);
   }
   expect(out).toContain('region=ap-southeast-3b');
+});
+
+test("the desktop app's interface tools are not archived", async ($, on) => {
+  const files = memoryFs(on);
+  on('tool.call', () => ({ result: 'ok', text: 'Plan shown (4 steps).' }));
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [] } as never);
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'done' } as never);
+  expect([...files.keys()].length).toBe(0);
+  await $.tool.call({ tool: 'mcp__ccd_session_mgmt__list_sessions' } as never);
+  expect([...files.keys()].length).toBe(1);
+});
+
+test('prose and code about secret names are not redacted; values that look like secrets are', () => {
+  const out = toolRecord(
+    'Read',
+    { file_path: 'README.md' },
+    'private keys, common token formats and `password=`/`token:` values are redacted\n' +
+      '// short appears in long as a whole token: config.ts in src/runtime/config.ts\n' +
+      "[/\b((?:api[_-]?key|secret|token)[\"']?\s*[:=]\s*)/gi, '$1[redacted]'],\n" +
+      'token: 9f8e7d6c5b4a\npassword=correcthorsebatterystaple\nAuthorization: Bearer abcdef0123456789',
+    1,
+  ).text;
+  expect(out).toContain('`password=`/`token:` values');
+  expect(out).toContain('whole token: config.ts');
+  expect(out).toContain("[:=]\s*)/gi");
+  for (const secret of ['9f8e7d6c5b4a', 'correcthorsebatterystaple', 'abcdef0123456789']) expect(out.includes(secret)).toBe(false);
+});
+
+test('a dropped message says where it sat and that its time is the compaction time', () => {
+  const files = droppedFiles(
+    [
+      { role: 'user', text: 'the canary weight is 37 percent', toolUses: [] },
+      { role: 'assistant', text: 'noted', toolUses: [] },
+    ],
+    Date.UTC(2026, 9, 17, 22, 44),
+  );
+  const out = search(files.flat(), 'canary weight');
+  expect(out).toContain('[user message (1 of 2), replaced by the compaction at 22:44 UTC]');
 });

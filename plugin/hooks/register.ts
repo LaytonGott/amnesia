@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code';
 import { specificsBlock, type Msg } from './specifics.ts';
-import { RECALL_DESCRIPTION, droppedFiles, search, toolRecord, type Rec } from './recall.ts';
+import { RECALL_DESCRIPTION, archivable, droppedFiles, search, toolRecord, type Rec } from './recall.ts';
 
 // userConfig budgetChars (plugin.json declares the default and range)
 const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 6000);
@@ -78,7 +78,7 @@ export const register: Register = (on, options) => {
     const r = await next(e);
     // archive the output as it happened: compaction may summarize it away, and
     // Claude Code may later clear old tool results for good
-    if (archive && e.agentId === undefined && typeof r.text === 'string' && r.text.length > 0) {
+    if (archive && e.agentId === undefined && archivable(e.tool) && typeof r.text === 'string' && r.text.length > 0) {
       try {
         const at = Date.now();
         const rec = toolRecord(e.tool, e as unknown as Record<string, unknown>, r.text, at);
