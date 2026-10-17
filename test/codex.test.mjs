@@ -7,7 +7,7 @@ import { listCodexSessions, scanCodexSession } from "../src/codex.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "amnesia.mjs");
-const CROOT = join(HERE, "fixtures", "codex");
+const CROOT = join(HERE, "fx", "codex");
 const SID = "cccccccc-0000-0000-0000-000000000001";
 
 const run = (args) =>

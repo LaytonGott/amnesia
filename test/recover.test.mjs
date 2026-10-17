@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "amnesia.mjs");
-const FIX = join(HERE, "fixtures", "root");
+const FIX = join(HERE, "fx", "root");
 const tmp = mkdtempSync(join(tmpdir(), "amnesia-recover-"));
 
 after(() => rmSync(tmp, { recursive: true, force: true }));

@@ -11,7 +11,7 @@ import {
 } from "../src/claude.mjs";
 import { extractConstraints } from "../src/actions.mjs";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "root");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "fx", "root");
 
 const mk = (rel) => {
   const path = join(ROOT, rel);

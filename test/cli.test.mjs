@@ -9,7 +9,7 @@ import { encodeProjectPath } from "../src/claude.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "amnesia.mjs");
-const ROOT = join(HERE, "fixtures", "root");
+const ROOT = join(HERE, "fx", "root");
 const tmp = mkdtempSync(join(tmpdir(), "amnesia-test-"));
 
 after(() => rmSync(tmp, { recursive: true, force: true }));
