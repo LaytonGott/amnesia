@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { encodeProjectPath } from "../src/claude.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "amnesia.mjs");
@@ -20,8 +21,17 @@ const tmp = mkdtempSync(join(tmpdir(), "amnesia-hooks-"));
 
 after(() => rmSync(tmp, { recursive: true, force: true }));
 
+const STORE = join(tmp, "store");
+const ENV = { ...process.env, AMNESIA_HOME: STORE };
+
 const run = (args, opts = {}) =>
-  execFileSync(process.execPath, [BIN, ...args], { encoding: "utf8", ...opts });
+  execFileSync(process.execPath, [BIN, ...args], {
+    encoding: "utf8",
+    env: ENV,
+    ...opts,
+  });
+
+const projStore = (cwd) => join(STORE, encodeProjectPath(cwd));
 
 const fixtureInput = (cwd, event) =>
   JSON.stringify({
@@ -108,7 +118,7 @@ test("uninstall removes only amnesia hooks", () => {
 test("precompact hook archives snapshot + sidecar from stdin", () => {
   const cwd = join(tmp, "proj-hook");
   run(["hook", "precompact"], { input: fixtureInput(cwd, "PreCompact") });
-  const dir = join(cwd, ".amnesia", "snapshots");
+  const dir = join(projStore(cwd), "snapshots");
   assert.ok(existsSync(dir));
   const files = readdirSync(dir);
   assert.equal(files.filter((f) => f.endsWith(".md")).length, 1);
@@ -137,7 +147,7 @@ test("postcompact hook queues the exact dropped messages", () => {
   });
   const out = run(["hook", "postcompact"], { input });
   assert.ok(out.includes("compaction just fired"));
-  const marker = join(cwd, ".amnesia", "inject", "aaaaaaaa.json");
+  const marker = join(projStore(cwd), "inject", "aaaaaaaa.json");
   assert.ok(existsSync(marker));
   const m = JSON.parse(readFileSync(marker, "utf8"));
   assert.ok(m.snapshot);
@@ -177,7 +187,7 @@ test("prompt hook injects lost messages verbatim once, then clears", () => {
   assert.ok(ctx.includes("Build the sync daemon."));
   assert.ok(ctx.includes("newer instructions always win"));
   assert.equal(
-    existsSync(join(cwd, ".amnesia", "inject", "dddddddd.json")),
+    existsSync(join(projStore(cwd), "inject", "dddddddd.json")),
     false
   );
   const second = run(["hook", "prompt"], { input: promptInput });

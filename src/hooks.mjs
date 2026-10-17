@@ -10,7 +10,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectHistory, droppedForBoundary } from "./claude.mjs";
+import { collectHistory, droppedForBoundary, projectStore } from "./claude.mjs";
 import { extractConstraints } from "./actions.mjs";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -172,7 +172,7 @@ export async function hookPrecompact() {
       .toISOString()
       .slice(0, 16)
       .replace(/[:T]/g, "-");
-    const dir = join(cwd, ".amnesia", "snapshots");
+    const dir = join(projectStore(cwd), "snapshots");
     mkdirSync(dir, { recursive: true });
     const out = join(dir, `${session.slice(0, 8)}-${stamp}-precompact.md`);
 
@@ -235,7 +235,7 @@ export async function hookPostcompact() {
     const cwd = input.cwd || process.cwd();
     const session = input.session_id || "";
     const prefix = session.slice(0, 8);
-    const dir = join(cwd, ".amnesia", "snapshots");
+    const dir = join(projectStore(cwd), "snapshots");
 
     let snapshot = null;
     let promptCount = null;
@@ -289,7 +289,7 @@ export async function hookPostcompact() {
     selected.reverse();
 
     if (prefix) {
-      const idir = join(cwd, ".amnesia", "inject");
+      const idir = join(projectStore(cwd), "inject");
       mkdirSync(idir, { recursive: true });
       writeFileSync(
         join(idir, `${prefix}.json`),
@@ -332,8 +332,7 @@ export async function hookPrompt() {
     const session = input.session_id || "";
     if (!session) return;
     const marker = join(
-      cwd,
-      ".amnesia",
+      projectStore(cwd),
       "inject",
       `${session.slice(0, 8)}.json`
     );

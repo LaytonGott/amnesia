@@ -12,6 +12,7 @@ import {
   droppedForBoundary,
   encodeProjectPath,
   eventKeyOf,
+  projectStore,
   scanPersisted,
 } from "./claude.mjs";
 import {
@@ -76,7 +77,10 @@ export async function runRestore({ file, files, all, outPath }) {
     ? isAbsolute(outPath)
       ? outPath
       : join(process.cwd(), outPath)
-    : join(".amnesia", `restored-${file.session.slice(0, 8)}-${stamp}.md`);
+    : join(
+        projectStore(process.cwd()),
+        `restored-${file.session.slice(0, 8)}-${stamp}.md`
+      );
 
   const md = [];
   md.push("# Recovered context (amnesia restore)");
@@ -374,7 +378,7 @@ export async function runRecover({ file, outDir }) {
     ? isAbsolute(outDir)
       ? outDir
       : join(process.cwd(), outDir)
-    : join(process.cwd(), ".amnesia", "recovered", file.session.slice(0, 8));
+    : join(projectStore(process.cwd()), "recovered", file.session.slice(0, 8));
 
   console.log("");
   console.log(style.bold("  amnesia") + style.dim(" \u00b7 recover"));

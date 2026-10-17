@@ -54,8 +54,10 @@ npx amnesia-cli codex <session-id>       compaction receipt for a Codex session
 npx amnesia-cli card                     shareable receipt card for the latest compaction (HTML)
 npx amnesia-cli card <session-id>        card for a specific session
 
-npx amnesia-cli install                  wire Claude Code hooks: auto-snapshot before
-                                         every compaction, announce it after
+npx amnesia-cli home                     show where amnesia keeps its files
+
+npx amnesia-cli install                  wire Claude Code hooks: snapshot before compaction,
+                                         re-inject lost messages after
 npx amnesia-cli uninstall                remove the hooks
 
 npx amnesia-cli --json                   machine-readable output
@@ -66,11 +68,12 @@ npx amnesia-cli --root <dir>             use a different projects root
 
 Dropped content is never actually gone — Claude Code keeps the full history on
 disk, it just stops loading it into context. `restore` extracts the replaced
-messages into a markdown file (default `.amnesia/restored-<id>.md`) and prints
-one line to paste back to your agent:
+messages into a markdown file (default
+`~/.claude/amnesia/<project>/restored-<id>.md`) and prints one line to paste
+back to your agent:
 
 ```
-Read `.amnesia/restored-5fdbd371-2026-10-15-14-02.md` — this is context you lost to compaction.
+Read `C:\Users\you\.claude\amnesia\...\restored-5fdbd371-2026-10-15-14-02.md` — this is context you lost to compaction.
 ```
 
 ### protect
@@ -96,7 +99,8 @@ Preview (first 2KB): …
 
 The same happens to results later cleared by micro-compaction. `recover` finds
 every pointer in a session, copies the full outputs into
-`.amnesia/recovered/<session>/`, and writes a `MANIFEST.md` mapping each output
+`~/.claude/amnesia/<project>/recovered/<session>/`, and writes a `MANIFEST.md`
+mapping each output
 to its tool call — with a paste-line so your agent can read them again.
 Outputs whose files were pruned from disk are listed as unrecoverable.
 
@@ -133,7 +137,7 @@ the point.
 on, forgetting heals itself:
 
 - **PreCompact** — before the agent forgets anything, the full session is
-  archived to `.amnesia/snapshots/`.
+  archived to `~/.claude/amnesia/<project>/snapshots/`.
 - **PostCompact** — after compaction fires, the exact set of messages that
   were dropped is computed (the same reconstruction the receipts use — no
   heuristics) and the most recent ~1,500 tokens of them are queued.
@@ -142,6 +146,10 @@ on, forgetting heals itself:
   *anything here still applies unless you have since been told otherwise —
   newer instructions always win*. No keyword matching decides what your rules
   are; the agent judges from the real messages.
+
+Everything amnesia writes lives under `~/.claude/amnesia/` (override with the
+`AMNESIA_HOME` env var) — nothing lands inside your project or your git repo.
+`amnesia home` prints the exact paths.
 
 Your `settings.json` is backed up before any change, only the amnesia hook
 entries are touched, and `amnesia uninstall` removes them cleanly.

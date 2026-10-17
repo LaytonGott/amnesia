@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fmtTokens, fmtPct, fmtDuration } from "./render.mjs";
+import { projectStore } from "./claude.mjs";
 
 const esc = (s) =>
   String(s ?? "").replace(
@@ -14,7 +15,7 @@ export function cardOutputPath(outPath, session) {
   }
   const stamp = new Date().toISOString().slice(0, 10);
   return join(
-    process.cwd(),
+    projectStore(process.cwd()),
     `amnesia-card-${session.slice(0, 8)}-${stamp}.html`
   );
 }

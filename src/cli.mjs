@@ -5,6 +5,8 @@ import {
   scanFile,
   scanPersisted,
   encodeProjectPath,
+  amnesiaHome,
+  projectStore,
   DEFAULT_ROOT,
 } from "./claude.mjs";
 import { renderScan, renderReceipt, style } from "./render.mjs";
@@ -48,6 +50,7 @@ function printHelp() {
                                 compaction, announce it after
     amnesia uninstall [--settings <file>]
                                 remove the amnesia hooks
+    amnesia home                show where amnesia keeps its files
     amnesia --json [<session>]  machine-readable output
     amnesia --root <dir>        use a different projects root
     amnesia --version | --help
@@ -177,13 +180,22 @@ export async function main(argv) {
       printHelp();
       return;
     } else if (a === "--version" || a === "-v") {
-      console.log("amnesia 0.9.0");
+      console.log("amnesia 0.10.0");
       return;
     } else pos.push(a);
   }
 
   const files = listSessionFiles(root);
   const cmd = pos[0];
+
+  if (cmd === "home") {
+    console.log("");
+    console.log(style.bold("  amnesia") + style.dim(" \u00b7 home"));
+    console.log(style.dim(`  store    ${amnesiaHome()}`));
+    console.log(style.dim(`  project  ${projectStore(process.cwd())}`));
+    console.log("");
+    return;
+  }
 
   if (cmd === "install") {
     let r;

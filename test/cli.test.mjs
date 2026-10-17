@@ -1,10 +1,11 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { encodeProjectPath } from "../src/claude.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "amnesia.mjs");
@@ -120,4 +121,27 @@ test("receipt labels precomputed compactions and UTC times", () => {
   ]);
   assert.ok(out.includes("(precomputed)"));
   assert.ok(out.includes(" UTC "));
+});
+
+test("restore defaults into the amnesia store, not the project", () => {
+  const store = join(tmp, "store");
+  const out = execFileSync(
+    process.execPath,
+    [BIN, "restore", "aaaaaaaa-0000-0000-0000-000000000001", "--root", ROOT],
+    { encoding: "utf8", env: { ...process.env, AMNESIA_HOME: store } }
+  );
+  assert.ok(out.includes("recovered context written to"));
+  const dir = join(store, encodeProjectPath(process.cwd()));
+  const files = readdirSync(dir);
+  assert.ok(files.some((f) => f.startsWith("restored-aaaaaaaa")));
+});
+
+test("home command shows the store locations", () => {
+  const store = join(tmp, "store2");
+  const out = execFileSync(process.execPath, [BIN, "home"], {
+    encoding: "utf8",
+    env: { ...process.env, AMNESIA_HOME: store },
+  });
+  assert.ok(out.includes(store));
+  assert.ok(out.includes(encodeProjectPath(process.cwd())));
 });

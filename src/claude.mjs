@@ -184,6 +184,16 @@ export function encodeProjectPath(absPath) {
   return String(absPath).replace(/[^A-Za-z0-9]/g, "-");
 }
 
+export function amnesiaHome() {
+  if (process.env.AMNESIA_HOME) return process.env.AMNESIA_HOME;
+  const conf = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  return join(conf, "amnesia");
+}
+
+export function projectStore(cwd) {
+  return join(amnesiaHome(), encodeProjectPath(cwd || process.cwd()));
+}
+
 export async function collectHistory(file) {
   const prompts = [];
   const boundaries = [];
