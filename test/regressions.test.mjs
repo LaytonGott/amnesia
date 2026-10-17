@@ -17,6 +17,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   collectHistory,
+  droppedForBoundary,
+  isAmnesiaBlock,
+  scanFile,
   encodeProjectPath,
   extractText,
   listSessionFiles,
@@ -256,4 +259,47 @@ test("dropped prompts with a leading reminder block keep the user's words", asyn
   const h = await collectHistory({ path: p });
   assert.equal(h.prompts.length, 1);
   assert.equal(h.prompts[0].text, "Keep the migration reversible.");
+});
+
+test("rows the plugin appends after a summary are not counted as prompts", async () => {
+  const p = join(tmp, "plugin-block.jsonl");
+  writeFileSync(
+    p,
+    jsonl([
+      { type: "user", uuid: "q1", timestamp: "2026-10-01T10:00:00.000Z", message: { role: "user", content: "pin commit 7f3c2a91e" } },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "b1",
+        timestamp: "2026-10-01T10:05:00.000Z",
+        compactMetadata: { trigger: "manual", preTokens: 50000, postTokens: 8000 },
+      },
+      { type: "user", uuid: "s1", isCompactSummary: true, parentUuid: "b1", message: { role: "user", content: "Summary: worked on a build." } },
+      {
+        type: "user",
+        uuid: "k1",
+        parentUuid: "s1",
+        message: { role: "user", content: "[amnesia] Exact details the summary above dropped, verbatim from the replaced history.\n- 7f3c2a91e" },
+      },
+      { type: "user", uuid: "q2", timestamp: "2026-10-01T10:06:00.000Z", message: { role: "user", content: "continue" } },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "b2",
+        timestamp: "2026-10-01T10:09:00.000Z",
+        compactMetadata: { trigger: "auto", preTokens: 60000, postTokens: 9000 },
+      },
+    ])
+  );
+  const file = { path: p, project: "x", session: "plugin-block", size: 0, mtimeMs: 0 };
+  const h = await collectHistory(file);
+  assert.deepEqual(h.prompts.map((x) => x.text), ["pin commit 7f3c2a91e", "continue"]);
+  assert.equal(h.boundaries[0].summary, "Summary: worked on a build.");
+  const second = droppedForBoundary(h, 1);
+  assert.deepEqual(second.map((x) => x.text), ["continue"]);
+  const s = await scanFile(file);
+  assert.equal(s.userSeen, 2);
+  assert.equal(s.boundaries[1].coveredUsers, 1);
+  assert.equal(isAmnesiaBlock("  [amnesia] x"), true);
+  assert.equal(isAmnesiaBlock("about [amnesia]"), false);
 });

@@ -17,7 +17,8 @@
   },
   "scripts": {
     "start": "node bin/amnesia.mjs",
-    "test": "node --test"
+    "test": "node scripts/test.mjs",
+    "test:plugin": "claude plugin validate plugin && claude plugin test plugin"
   },
   "keywords": [
     "claude-code",

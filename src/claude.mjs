@@ -44,7 +44,13 @@ export function listSessionFiles(root = DEFAULT_ROOT) {
   return out;
 }
 
-const REMINDER_ONLY = /^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/;
+export const AMNESIA_MARKER = "[amnesia]";
+
+export function isAmnesiaBlock(text) {
+  return typeof text === "string" && text.trimStart().startsWith(AMNESIA_MARKER);
+}
+
+const REMINDER_ONLY =/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/;
 
 export function extractText(content) {
   if (typeof content === "string") return content;
@@ -151,6 +157,7 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
         continue;
       }
       const text = extractText(content);
+      if (isAmnesiaBlock(text)) continue;
       users.push({
         lineNo: lines,
         timestamp: o.timestamp || null,
@@ -281,6 +288,7 @@ export async function collectHistory(file) {
       continue;
     }
     const text = extractText(content);
+    if (isAmnesiaBlock(text)) continue;
     if (text && text.trim()) {
       prompts.push({
         lineNo: lines,
