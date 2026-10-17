@@ -7,7 +7,7 @@ with a summary — hundreds of messages, hundreds of thousands of tokens, gone
 from context. No notice, no receipt. amnesia gives you all four:
 
 1. **The receipt** — see exactly what was forgotten, when, and what it cost you
-2. **`restore`** — recover the dropped messages into a readable file your agent can re-read
+2. **`restore`** — recover your dropped prompts (and the summary that replaced them) into a readable file your agent can re-read
 3. **`protect`** — move your dropped rules into `CLAUDE.md` so they survive every future compaction
 4. **`recover`** — bring back tool outputs that were persisted to disk and replaced with a pointer
 
@@ -44,6 +44,7 @@ npx amnesia-cli restore --all            recover every compaction in a session
 
 npx amnesia-cli protect                  show constraints that were dropped in this project
 npx amnesia-cli protect --write          write them into CLAUDE.md (marked section, safe to re-run)
+npx amnesia-cli protect <session-id>     constraints dropped in that session's project
 
 npx amnesia-cli recover                  recover tool outputs persisted in this project's latest session
 npx amnesia-cli recover <session-id>     recover a specific session's persisted outputs
@@ -67,9 +68,10 @@ npx amnesia-cli --root <dir>             use a different projects root
 
 ### restore
 
-Dropped content is never actually gone — Claude Code keeps the full history on
-disk, it just stops loading it into context. `restore` extracts the replaced
-messages into a markdown file (default
+Dropped content is not gone while the session file is still on disk — Claude
+Code keeps the full history there, it just stops loading it into context.
+`restore` extracts the prompts you wrote before each compaction, plus the
+summary that replaced them, into a markdown file (default
 `~/.claude/amnesia/<project>/restored-<id>.md`) and prints one line to paste
 back to your agent:
 
@@ -79,13 +81,22 @@ Read `C:\Users\you\.claude\amnesia\...\restored-5fdbd371-2026-10-15-14-02.md` �
 
 ### protect
 
-Summaries drop rules first — "audit only," "never import X," "keep them
-separate." But `CLAUDE.md` survives compaction (Claude Code re-injects it after
-every compact). `protect` scans your dropped prompts, finds constraint-like
-sections, and writes them into a clearly marked section of your project's
-`CLAUDE.md`. Dry-run by default; `--write` applies. Re-running updates the
-section in place. Candidates the compaction summary demonstrably failed to
-preserve are flagged — your highest-value pins are visible at a glance.
+Summaries keep most rules — on 81 real compactions about 83% of dropped
+constraints still appeared in the summary ([docs/EFFICACY.md](docs/EFFICACY.md)) —
+but the rest erode, more so at extreme compression. `CLAUDE.md` survives
+compaction (Claude Code re-injects it after every compact). `protect` scans
+your dropped prompts, finds constraint-like sentences (keyword-matched, so
+review the list), and writes them into a clearly marked section of the
+project's `CLAUDE.md`. Dry-run by default; `--write` applies. Re-running
+updates the section in place. Candidates the compaction summary demonstrably
+failed to preserve are flagged — your highest-value pins are visible at a
+glance.
+
+`protect` is the one command that writes inside a project. The target is the
+directory the session was recorded in (read from the session file), not your
+shell's current directory; if that can't be determined, `--write` refuses
+unless you pass `--out <path>`. Pinned rules apply to every future session in
+that project, so drop one-off instructions before writing.
 
 ### recover
 
@@ -104,7 +115,10 @@ every pointer in a session, copies the full outputs into
 `~/.claude/amnesia/<project>/recovered/<session>/`, and writes a `MANIFEST.md`
 mapping each output
 to its tool call — with a paste-line so your agent can read them again.
-Outputs whose files were pruned from disk are listed as unrecoverable.
+Outputs whose files were pruned from disk are listed as unrecoverable. Only
+files inside a session's own `tool-results/` directory are copied; a pointer
+naming any other path (for example, one quoted inside fetched web content) is
+listed as rejected and left alone.
 
 ### codex
 
@@ -138,20 +152,23 @@ the point.
 `amnesia install` wires amnesia into Claude Code's own hook system. From then
 on, forgetting heals itself:
 
-- **PreCompact** — before the agent forgets anything, the full session is
-  archived to `~/.claude/amnesia/<project>/snapshots/`.
-- **PostCompact** — after compaction fires, the exact set of messages that
-  were dropped is computed (the same reconstruction the receipts use — no
-  heuristics) and the most recent ~1,500 tokens of them are queued.
-- **UserPromptSubmit** — on your very next prompt, those lost messages are
+- **PreCompact** — before the agent forgets anything, every prompt you wrote
+  in the session (plus keyword-flagged constraints) is saved to
+  `~/.claude/amnesia/<project>/snapshots/`. Assistant replies and tool
+  outputs are not copied; they stay in Claude Code's own session file.
+- **PostCompact** — after compaction fires, the exact set of your prompts
+  that were dropped is computed (the same reconstruction the receipts use —
+  no heuristics) and the most recent ~1,500 tokens of them are queued.
+- **UserPromptSubmit** — on your very next prompt, those lost prompts are
   injected back into the live session (very long ones shortened to fit), with
   one rule attached: *anything here still applies unless you have since been
   told otherwise — newer instructions always win*. No keyword matching decides
   what your rules are; the agent judges from the real messages.
 
 Everything amnesia writes lives under `~/.claude/amnesia/` (override with the
-`AMNESIA_HOME` env var) — nothing lands inside your project or your git repo.
-`amnesia home` prints the exact paths.
+`AMNESIA_HOME` env var) — nothing lands inside your project or your git repo,
+except `CLAUDE.md` when you run `protect --write`, and files you point `--out`
+at. `amnesia home` prints the exact paths.
 
 Check the setup anytime with `amnesia doctor`: it verifies the settings file
 parses, all three hooks are registered, and the node + amnesia paths the hooks

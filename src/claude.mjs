@@ -26,27 +26,54 @@ export function listSessionFiles(root = DEFAULT_ROOT) {
       if (!f.isFile() || !f.name.endsWith(".jsonl")) continue;
       const path = join(dir, f.name);
       let size = 0;
+      let mtimeMs = 0;
       try {
-        size = statSync(path).size;
+        const st = statSync(path);
+        size = st.size;
+        mtimeMs = st.mtimeMs;
       } catch {}
       out.push({
         path,
         project: p.name,
         session: f.name.slice(0, -".jsonl".length),
         size,
+        mtimeMs,
       });
     }
   }
   return out;
 }
 
-function extractText(content) {
+const REMINDER_ONLY = /^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/;
+
+export function extractText(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    const t = content.find(
-      (b) => b && b.type === "text" && typeof b.text === "string"
-    );
-    if (t) return t.text;
+    const texts = content
+      .filter((b) => b && b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text);
+    if (texts.length === 0) return null;
+    const own = texts.filter((t) => !REMINDER_ONLY.test(t));
+    return (own.length > 0 ? own : texts).join("\n\n");
+  }
+  return null;
+}
+
+export async function sessionCwd(file) {
+  const rl = readline.createInterface({
+    input: createReadStream(file.path, "utf8"),
+    crlfDelay: Infinity,
+  });
+  try {
+    for await (const line of rl) {
+      if (!line.includes('"cwd"')) continue;
+      try {
+        const o = JSON.parse(line);
+        if (o && typeof o.cwd === "string" && o.cwd) return o.cwd;
+      } catch {}
+    }
+  } finally {
+    rl.close();
   }
   return null;
 }

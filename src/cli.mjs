@@ -38,7 +38,7 @@ function printHelp() {
     amnesia                     scan ~/.claude/projects for compacted sessions
     amnesia <session-id>        full compaction receipt for one session
     amnesia restore [<session>] [--all] [--out <file>]
-                                recover dropped messages into a readable file
+                                recover dropped prompts into a readable file
     amnesia protect [<session>] [--project <dir>] [--write] [--out <file>]
                                 extract dropped constraints into CLAUDE.md
     amnesia recover [<session>] [--out <dir>]

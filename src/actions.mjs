@@ -6,7 +6,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   collectHistory,
   droppedForBoundary,
@@ -14,6 +14,7 @@ import {
   eventKeyOf,
   projectStore,
   scanPersisted,
+  sessionCwd,
 } from "./claude.mjs";
 import {
   style,
@@ -258,7 +259,7 @@ export async function runProtect({
     const dir = dirname(sessionFile.path);
     dirFiles = files.filter((f) => dirname(f.path) === dir);
     resolvedDir = dir;
-    targetDirForClaude = process.cwd();
+    targetDirForClaude = await sessionCwd(sessionFile);
   } else if (projectArg) {
     let dir = null;
     if (isAbsolute(projectArg)) {
@@ -278,6 +279,12 @@ export async function runProtect({
     }
     resolvedDir = dir;
     dirFiles = files.filter((f) => dirname(f.path) === dir);
+    if (!targetDirForClaude) {
+      for (const f of dirFiles) {
+        targetDirForClaude = await sessionCwd(f).catch(() => null);
+        if (targetDirForClaude) break;
+      }
+    }
   } else {
     const enc = join(root, encodeProjectPath(process.cwd()));
     if (!existsSync(enc)) {
@@ -379,11 +386,28 @@ export async function runProtect({
     ? isAbsolute(outPath)
       ? outPath
       : join(process.cwd(), outPath)
-    : join(targetDirForClaude || process.cwd(), "CLAUDE.md");
+    : targetDirForClaude
+      ? join(targetDirForClaude, "CLAUDE.md")
+      : null;
+
+  if (!target) {
+    console.error(
+      style.red("  could not tell which project directory these sessions belong to.")
+    );
+    console.error(style.dim("  pass the target explicitly:  --out <path/to/CLAUDE.md>"));
+    console.log("");
+    if (write) process.exitCode = 1;
+    return;
+  }
 
   if (!write) {
     console.log(style.dim("  dry run \u2014 nothing written."));
-    console.log(style.dim(`  apply:  amnesia protect --write   (target: ${target})`));
+    const applyCmd = sessionFile
+      ? `amnesia protect ${sessionFile.session.slice(0, 8)} --write`
+      : projectArg
+        ? `amnesia protect --project ${projectArg} --write`
+        : "amnesia protect --write";
+    console.log(style.dim(`  apply:  ${applyCmd}   (target: ${target})`));
     console.log("");
     return;
   }
@@ -403,6 +427,16 @@ function fmtBytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+export function isToolResultPath(path, file) {
+  if (!path) return false;
+  const fold = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+  const projectsRoot = fold(resolve(dirname(dirname(file.path))));
+  const rel = relative(projectsRoot, fold(resolve(path)));
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return false;
+  const parts = rel.split(sep);
+  return parts.length === 4 && parts[2] === "tool-results";
 }
 
 export async function runRecover({ file, outDir }) {
@@ -446,7 +480,8 @@ export async function runRecover({ file, outDir }) {
     let ok = false;
     let bytes = 0;
     let destName = null;
-    if (r.path && existsSync(r.path)) {
+    const rejected = r.path != null && !isToolResultPath(r.path, file);
+    if (!rejected && r.path && existsSync(r.path)) {
       try {
         bytes = statSync(r.path).size;
         const base = r.path.split(/[\\/]/).pop();
@@ -463,7 +498,7 @@ export async function runRecover({ file, outDir }) {
         ok = false;
       }
     }
-    entries.push({ ...r, exists: ok, bytes, destName });
+    entries.push({ ...r, exists: ok, rejected, bytes, destName });
   }
 
   const md = [];
@@ -487,12 +522,18 @@ export async function runRecover({ file, outDir }) {
   md.push("");
   entries.forEach((e, i) => {
     md.push(
-      `### ${i + 1}. ${e.destName || (e.path ? e.path.split(/[\\/]/).pop() : "(no path)")}${e.exists ? ` (${fmtBytes(e.bytes)})` : " \u2014 missing"}`
+      `### ${i + 1}. ${e.destName || (e.path ? e.path.split(/[\\/]/).pop() : "(no path)")}${e.exists ? ` (${fmtBytes(e.bytes)})` : e.rejected ? " \u2014 rejected" : " \u2014 missing"}`
     );
     md.push("");
     md.push(`- tool_use_id: \`${e.toolUseId || "?"}\``);
     md.push(`- original: \`${e.path || "unknown"}\``);
-    if (!e.exists) md.push("- state: source file no longer exists (unrecoverable)");
+    if (e.rejected) {
+      md.push(
+        "- state: not copied \u2014 path is outside the session's tool-results directory"
+      );
+    } else if (!e.exists) {
+      md.push("- state: source file no longer exists (unrecoverable)");
+    }
     if (e.preview) {
       md.push("- preview:");
       md.push("");
@@ -519,7 +560,7 @@ export async function runRecover({ file, outDir }) {
       e.destName || (e.path ? e.path.split(/[\\/]/).pop() : "unknown"),
       44
     ).padEnd(46);
-    const status = e.exists ? fmtBytes(e.bytes) : "missing";
+    const status = e.exists ? fmtBytes(e.bytes) : e.rejected ? "rejected" : "missing";
     console.log(
       `  ${String(i + 1).padStart(3)}. ${name} ${e.exists ? status : style.red(status)}`
     );
@@ -531,6 +572,14 @@ export async function runRecover({ file, outDir }) {
       `  recovered ${okCount}/${entries.length} output(s) (${fmtBytes(totalBytes)}) into ${out}`
     )
   );
+  const rejectedCount = entries.filter((e) => e.rejected).length;
+  if (rejectedCount > 0) {
+    console.log(
+      style.dim(
+        `  ${rejectedCount} pointer(s) named a path outside the session's tool-results directory (not copied).`
+      )
+    );
+  }
   if (cleared.length > 0) {
     console.log(
       style.dim(
