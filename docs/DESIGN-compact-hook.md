@@ -68,9 +68,18 @@ on("session.compact", async ($, e, next) => {
    identifiers containing `_`/digits/camelCase humps, versions, hashes and
    IDs, URLs, CLI flags, env vars, error codes.
 2. Keep those **absent from `summary`** (exact substring, case-sensitive).
-3. Score: recency (last occurrence index), frequency, source weight
-   (user > assistant > tool input > tool output). Drop single-use strings
-   from tool output (noise from logs).
+3. Score (as tuned against the audit below):
+   `4·source + 2·kind + log2(1+count) + 3·recency − 8 if seen only in
+   Read/Grep/Glob output − 3 if seen only in tool traffic`.
+   - **Source**: what the person typed 4; the agent's text and carried
+     items 3; tool inputs and an earlier summary 2; tool output and harness
+     rows (`<system-reminder>`, skill bodies) 1; Read/Grep/Glob output 0.
+   - **Kind**: URL and hash 5; version, path and env var 4; file name 3;
+     flag and dotted name 2; identifier 1.
+   - Hex runs inside UUIDs are not hashes.
+   - A tool_result that mirrors its tool use's text is counted once, and so
+     is one occurrence matched by two patterns.
+   - A single mention in tool traffic is dropped.
 4. Emit until `budget` (default 6,000 chars ≈ 1.5k tokens, `userConfig`):
    one line per string with ~60 chars of context from its last occurrence, so
    the agent knows what it refers to:
@@ -172,15 +181,64 @@ and no settings were touched.
   text happens to survive. The prototype now re-reads each earlier block's
   `- <item>` lines (not its header or context) as candidates. They rank as
   old, so newer details win the budget.
-- **Ranking quality on real data is the weak spot.** On f3d9 event 16 there
-  were 3,402 candidates and 500+ missing from the summary, and only 53 fit in
-  6,000 chars. The top of the list was dominated by code field names
-  (`sessionStore`, `formData`, `whyShouldWork`) the agent could re-read from
-  files, ahead of commits, PR numbers and paths. Next tuning steps:
-  - Rank by kind: hash / URL / version / path / env var above identifiers.
-  - Down-weight strings that only appear in Read/Grep output (recoverable
-    from disk).
-  - Measure with the offline audit.
+- **Ranking quality was the weak spot; tuned against an offline audit.**
+  The first ranker filled the block with code field names (`sessionStore`,
+  `formData`, `whyShouldWork`) ahead of commits, PR links and paths. See
+  "Ranking audit" below.
+
+## Ranking audit (2026-10-17)
+
+`node bench/audit-specifics.mts` (Node 22.18+/24, no model calls) rebuilds,
+for every real compaction under `~/.claude/projects`, the messages the
+compaction replaced. It rebuilds them the way the engine hands them to the
+hook, with tool results attached to their tool uses. It then runs
+`specificsBlock` against the real summary and scores the block with its own
+classifiers, independent of the ranker. Run: 171 session files, 84 distinct
+compactions, 6,000-char budget. `AUDIT_MODULE=<file>` runs another version
+of the extractor.
+
+| metric | summary alone | v0 (first prototype) | v3 (tuned) |
+|---|---|---|---|
+| exact strings from dropped prompts (EFFICACY.md's class) present | 19.6% | 27.1% | **29.5%** |
+| high-value strings (hash, URL, version, path, env var) missing from the summary that the block brings back | 0% | 1.9% | **6.0%** |
+| block items that are identifiers | — | 67.0% | 24.0% |
+| block items only ever seen in Read/Grep/Glob output | — | 0.2% | 0.0% |
+| slowest extraction | — | 274 ms | 257 ms |
+
+Per kind, v3 brings back hashes 11.3%, URLs 10.3%, versions 8.0%, env vars
+5.5% and paths 4.0% of what the summary dropped. v3's block mix: paths
+25.7%, identifiers 24.0%, hashes 16.6%, URLs 14.4%, files 9.0%, env vars
+8.7%, versions 1.6%.
+
+How the tuning went:
+
+- **v1, kind tiers above source:** high-value recovery rose to 7.2%, but
+  prompt strings fell to 23.4%. UUID fragments and tool-output hashes
+  pushed out what the person typed. That is the wrong trade.
+- **v2, source weighted above kind:** also excludes UUID hex and catches
+  kebab-case names. Both metrics beat v0.
+- **v3, two more changes:**
+  - Context snippets shortened from 120 to 60 chars. That fits about 25%
+    more items per block.
+  - A double-count fix, caught by a unit test: one occurrence matched by two
+    patterns was counted twice, which let single tool-output mentions past
+    the noise filter.
+- **Context length is the main remaining lever.** At 40 chars: 31.1% /
+  7.0%. At 60: 29.4% / 5.9%. At 90: 28.6% / 5.1%. The audit cannot measure
+  whether context helps the agent understand an item, so 60 is a judgment
+  call. Only the behavioral A/B can settle it.
+- **The Read/Grep down-weight barely mattered.** Read-only strings were
+  0.2% of the first ranker's block. The flood came from identifiers in the
+  person's and the agent's own text, and from tool output being counted
+  twice.
+- **The real ceiling is the budget.** Per compaction there are about 670
+  missing high-value strings and about 160 missing prompt strings, against
+  about 50 lines in 6,000 chars. Raising the budget is the remaining big
+  lever, and it costs context on every turn after.
+
+The block on the largest real compaction (f3d9 event 16) now leads with
+routes, merge commits (`fdd2b8b`, `9431b59`), env vars (`SUPABASE_URL`) and
+PR links, instead of field names.
 - **Noise guards added:** slash-separated prose (`deploy/infra`) is not taken
   for a path. A shorter string inside a longer chosen one (`config.ts` in
   `src/runtime/config.ts`) is dropped. Any `scheme://` URL is caught whole.
