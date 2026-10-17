@@ -31,30 +31,53 @@ export function defaultSettingsPath() {
 
 function amnesiaBinPath() {
   const fromArgv = process.argv[1] ? resolve(process.argv[1]) : null;
-  if (fromArgv && existsSync(fromArgv) && fromArgv.endsWith(".mjs")) {
+  if (
+    fromArgv &&
+    fromArgv.endsWith(".mjs") &&
+    basename(fromArgv).startsWith("amnesia") &&
+    existsSync(fromArgv)
+  ) {
     return fromArgv;
   }
   return resolve(MODULE_DIR, "..", "bin", "amnesia.mjs");
 }
 
-const q = (s) => (/\s/.test(s) ? `"${s}"` : s);
+export function makeHookEntry(cmd) {
+  return {
+    matcher: "",
+    hooks: [
+      {
+        type: "command",
+        command: process.execPath,
+        args: [amnesiaBinPath(), "hook", cmd],
+        timeout: 60,
+      },
+    ],
+  };
+}
 
-function hookCommand(cmd) {
-  return `${q(process.execPath)} ${q(amnesiaBinPath())} hook ${cmd}`;
+export function isOurHookItem(h, cmd) {
+  if (!h || h.type !== "command") return false;
+  if (Array.isArray(h.args)) {
+    const i = h.args.lastIndexOf("hook");
+    return (
+      i === h.args.length - 2 &&
+      h.args[h.args.length - 1] === cmd &&
+      h.args.some((a) => typeof a === "string" && a.includes("amnesia"))
+    );
+  }
+  return (
+    typeof h.command === "string" &&
+    h.command.includes("amnesia") &&
+    h.command.includes(`hook ${cmd}`)
+  );
 }
 
 export function isOurs(entry, cmd) {
   return (
     entry &&
     Array.isArray(entry.hooks) &&
-    entry.hooks.some(
-      (h) =>
-        h &&
-        h.type === "command" &&
-        typeof h.command === "string" &&
-        h.command.includes("amnesia") &&
-        h.command.includes(`hook ${cmd}`)
-    )
+    entry.hooks.some((h) => isOurHookItem(h, cmd))
   );
 }
 
@@ -86,12 +109,13 @@ export function installHooks({ settingsPath, dryRun = false } = {}) {
       ? settings.hooks[event]
       : [];
     const kept = list.filter((e) => !isOurs(e, cmd));
-    const command = hookCommand(cmd);
-    settings.hooks[event] = [
-      ...kept,
-      { matcher: "", hooks: [{ type: "command", command, timeout: 60 }] },
-    ];
-    results.push({ event, command, replaced: list.length - kept.length });
+    const entry = makeHookEntry(cmd);
+    settings.hooks[event] = [...kept, entry];
+    results.push({
+      event,
+      command: `${process.execPath} ${entry.hooks[0].args.join(" ")}`,
+      replaced: list.length - kept.length,
+    });
   }
   let backupPath = null;
   if (!dryRun) {

@@ -104,6 +104,31 @@ test("doctor validates every hook command, not just the first", () => {
   assert.ok(r.out.includes("NOT FOUND"));
 });
 
+test("doctor warns on shell-form hooks", () => {
+  const s = join(tmp, "settings-shellform.json");
+  const bin = join(HERE, "..", "bin", "amnesia.mjs");
+  const cmd = (sub) => `"${process.execPath}" "${bin}" hook ${sub}`;
+  writeFileSync(
+    s,
+    JSON.stringify({
+      hooks: {
+        PreCompact: [
+          { matcher: "", hooks: [{ type: "command", command: cmd("precompact") }] },
+        ],
+        PostCompact: [
+          { matcher: "", hooks: [{ type: "command", command: cmd("postcompact") }] },
+        ],
+        UserPromptSubmit: [
+          { matcher: "", hooks: [{ type: "command", command: cmd("prompt") }] },
+        ],
+      },
+    })
+  );
+  const out = run(["doctor", "--settings", s]);
+  assert.ok(out.includes("shell-form"));
+  assert.ok(out.includes("warning"));
+});
+
 test("doctor survives unparseable settings", () => {
   const s = join(tmp, "settings-bad.json");
   writeFileSync(s, "{nope");

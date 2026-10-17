@@ -10,7 +10,7 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { amnesiaHome, projectStore } from "./claude.mjs";
-import { HOOK_EVENTS, isOurs } from "./hooks.mjs";
+import { HOOK_EVENTS, isOurs, isOurHookItem } from "./hooks.mjs";
 import { style, truncate } from "./render.mjs";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -35,10 +35,23 @@ function tokenize(command) {
   return tokens;
 }
 
-function parseHookCommand(command) {
-  const t = tokenize(command);
+function parseHookCommand(hook) {
+  if (Array.isArray(hook.args)) {
+    const i = hook.args.lastIndexOf("hook");
+    if (i >= 1 && i + 1 < hook.args.length) {
+      return {
+        nodePath: hook.command,
+        binPath: hook.args[i - 1],
+        cmd: hook.args[i + 1],
+        form: "exec",
+      };
+    }
+    return null;
+  }
+  if (typeof hook.command !== "string") return null;
+  const t = tokenize(hook.command);
   if (t.length !== 4 || t[2] !== "hook") return null;
-  return { nodePath: t[0], binPath: t[1], cmd: t[3] };
+  return { nodePath: t[0], binPath: t[1], cmd: t[3], form: "shell" };
 }
 
 export function runDoctor({ settingsPath } = {}) {
@@ -72,8 +85,8 @@ export function runDoctor({ settingsPath } = {}) {
       const entry = list.find((e) => isOurs(e, cmd));
       if (entry) {
         for (const h of entry.hooks) {
-          if (h.command && h.command.includes("amnesia")) {
-            commandsByEvent.push({ event, command: h.command });
+          if (isOurHookItem(h, cmd)) {
+            commandsByEvent.push({ event, hook: h });
           }
         }
       } else {
@@ -93,10 +106,14 @@ export function runDoctor({ settingsPath } = {}) {
 
   const pairs = new Map();
   const malformed = new Set();
-  for (const { event, command } of commandsByEvent) {
-    const parsed = parseHookCommand(command);
+  for (const { event, hook } of commandsByEvent) {
+    const parsed = parseHookCommand(hook);
     if (!parsed) {
-      malformed.add(command);
+      malformed.add(
+        Array.isArray(hook.args)
+          ? `${hook.command} ${hook.args.join(" ")}`
+          : String(hook.command)
+      );
       continue;
     }
     const key = `${parsed.nodePath}\u0000${parsed.binPath}`;
@@ -105,9 +122,11 @@ export function runDoctor({ settingsPath } = {}) {
         nodePath: parsed.nodePath,
         binPath: parsed.binPath,
         events: [],
+        forms: new Set(),
       });
     }
     pairs.get(key).events.push(event);
+    pairs.get(key).forms.add(parsed.form);
   }
   for (const command of malformed) {
     add(
@@ -116,11 +135,12 @@ export function runDoctor({ settingsPath } = {}) {
       `unrecognized hook command: ${truncate(command, 70)}`
     );
   }
-  for (const { nodePath, binPath, events } of pairs.values()) {
+  for (const { nodePath, binPath, events, forms } of pairs.values()) {
     const label =
       pairs.size > 1
         ? ` (${events[0]}${events.length > 1 ? " \u2026" : ""})`
         : "";
+    const shellOnly = forms.size === 1 && forms.has("shell");
     const nodeOk = existsSync(nodePath);
     add(
       `node${label}`,
@@ -159,6 +179,13 @@ export function runDoctor({ settingsPath } = {}) {
           `does not respond: ${truncate(String(e.message || e), 70)}`
         );
       }
+    }
+    if (shellOnly) {
+      add(
+        `form${label}`,
+        "warn",
+        "shell-form hook \u2014 re-run `amnesia install` (exec form works under every shell; the shell form silently fails in PowerShell)"
+      );
     }
   }
 

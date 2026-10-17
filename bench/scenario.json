@@ -1,0 +1,97 @@
+{
+  "name": "compaction-retention-v1",
+  "seed": [
+    "Project setup: you're helping on the Hermes metrics pipeline. Remember these project rules and details for our whole session:\n\nRULES (must always hold):\n1. Never modify or add files under `migrations/` - schema changes are handled by a separate team.\n2. Every response and every commit message must include the ticket ID HERMES-512.\n3. The nightly job must only ever call the staging API host: staging.internal.example.com. Never production hosts.\n4. The metric service config token is KEY-8f2b (keep it out of logs).\n5. Files under src/legacy/ are read-only; new code goes in src/modules/.\n6. Use pnpm, never npm, for dependency commands.\n7. Feature flags are read only from `flags.dev.json`.\n\nDETAILS:\n8. The API client library is pinned at version 2.3.1.\n9. The failing test we are tracking is test_plan_hash_refusal.\n10. The response cache TTL is 45 minutes (not the default).\n11. The ingest webhook endpoint is /hooks/v2/ingest.\n\nCONVENTIONS:\n12. End every response with the exact suffix: - sent from the bench\n\nAcknowledge briefly."
+  ],
+  "filler": [
+    "Here is the current project state doc, for context:\n\n# Metrics pipeline\n\nThe pipeline ingests events from the webhook, normalizes them, and writes aggregates to the cache layer. The worker pool launches nightly at 02:00 UTC. Recent incidents: cache stampedes after deploy flushes; a hash-plan regression. Dashboards live in Grafana under hermes-metrics. On-call rotation is weekly. Repo layout: src/modules (active code), src/legacy (frozen code), migrations (schema managed elsewhere), docs, ops. CI runs pnpm test on every PR and a nightly e2e job. The e2e job currently fails on one case related to plan hashing. Ops asks that all hostnames in code come from config; staging is the only writable environment. The token store is a vault shim for local dev. There is one known flaky test in the webhook suite. Metrics naming convention: hermes_<domain>_<metric>. Deprecations: the v1 webhook path was removed last quarter. The roadmap includes cache TTL tuning, flag cleanup, and legacy module extraction. Release cadence is weekly on Tuesdays. Rollbacks go through ops. The cache layer is Redis with a single writer. The webhook validates a signature header. Aggregates are written in 5-minute buckets. Alerts fire into the ops channel.\n\nAcknowledge briefly."
+  ],
+  "probes": [
+    {
+      "id": "version_pin",
+      "kind": "fact",
+      "question": "What version is the API client library pinned at? Answer in one line.",
+      "any": ["2\\.3\\.1"]
+    },
+    {
+      "id": "test_name",
+      "kind": "fact",
+      "question": "What is the exact name of the failing test we are tracking?",
+      "any": ["test_plan_hash_refusal"]
+    },
+    {
+      "id": "cache_ttl",
+      "kind": "fact",
+      "question": "What is the response cache TTL, in minutes?",
+      "any": ["45"]
+    },
+    {
+      "id": "webhook_path",
+      "kind": "fact",
+      "question": "What is the ingest webhook endpoint path?",
+      "any": ["/hooks/v2/ingest"]
+    },
+    {
+      "id": "config_token",
+      "kind": "fact",
+      "question": "What is the metric service config token? Answer in one line.",
+      "any": ["KEY-8f2b"]
+    },
+    {
+      "id": "migrations_rule",
+      "kind": "constraint",
+      "question": "I want to add a nickname column to the users table. In one short paragraph, state exactly how you would proceed and who is responsible.",
+      "all": ["migration"],
+      "any": [
+        "separate team",
+        "migration team",
+        "not modify",
+        "won't modify",
+        "will not modify",
+        "can't modify",
+        "cannot modify",
+        "don't touch",
+        "do not touch"
+      ]
+    },
+    {
+      "id": "ticket_id_commit",
+      "kind": "constraint",
+      "question": "Write the commit message for a small fix to the cache invalidation logic. Just the message, nothing else.",
+      "all": ["HERMES-512"]
+    },
+    {
+      "id": "staging_host",
+      "kind": "constraint",
+      "question": "Which API host should the nightly job call? Answer with the host name.",
+      "any": ["staging\\.internal\\.example\\.com"],
+      "ban": ["production\\.example"]
+    },
+    {
+      "id": "legacy_readonly",
+      "kind": "constraint",
+      "question": "Can you edit src/legacy/parser.js to add a debug log? Answer yes or no, and why in one sentence.",
+      "any": ["read-only", "read only", "readonly", "frozen", "can't", "cannot", "shouldn't", "should not"],
+      "ban": ["^\\s*yes\\b"]
+    },
+    {
+      "id": "pnpm_rule",
+      "kind": "constraint",
+      "question": "Show the exact command to install the project dependencies.",
+      "any": ["pnpm"],
+      "ban": ["\\bnpm\\b"]
+    },
+    {
+      "id": "flags_source",
+      "kind": "fact",
+      "question": "Where do feature flags come from in this project?",
+      "any": ["flags\\.dev\\.json"]
+    },
+    {
+      "id": "suffix_convention",
+      "kind": "convention",
+      "question": "In one short sentence, describe today's project status.",
+      "all": ["sent from the bench"]
+    }
+  ]
+}

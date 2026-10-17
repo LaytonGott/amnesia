@@ -70,12 +70,14 @@ test("install registers all three hooks, preserving existing keys", () => {
   assert.equal(j.hooks.PreCompact.length, 1);
   assert.equal(j.hooks.PostCompact.length, 1);
   assert.equal(j.hooks.UserPromptSubmit.length, 1);
-  assert.ok(
-    j.hooks.PreCompact[0].hooks[0].command.includes("hook precompact")
-  );
-  assert.ok(
-    j.hooks.UserPromptSubmit[0].hooks[0].command.includes("hook prompt")
-  );
+  const pre = j.hooks.PreCompact[0].hooks[0];
+  assert.equal(pre.args[1], "hook");
+  assert.equal(pre.args[2], "precompact");
+  assert.ok(pre.args[0].includes("amnesia"));
+  const ups = j.hooks.UserPromptSubmit[0].hooks[0];
+  assert.equal(ups.args[1], "hook");
+  assert.equal(ups.args[2], "prompt");
+  assert.ok(ups.args[0].includes("amnesia"));
 });
 
 test("install is idempotent", () => {
