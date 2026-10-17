@@ -148,3 +148,43 @@ test("the context snippet keeps the words before a value, from the start of its 
   expect(line).toContain('The edge-gateway certificate on the partner ingress');
   expect(line.includes('Unrelated earlier sentence')).toBe(false);
 });
+
+test('prose without "the", ports and handles keep their owner', () => {
+  const r = specificsBlock(
+    [user('Staging API listens on port 18443. Our deploy region is ap-southeast-3b. On-call owner is @mkovacs-ledger.')],
+    '',
+    6000,
+  );
+  const got = items(r?.text);
+  expect(got).toContain('Staging API listens on port 18443');
+  expect(got).toContain('Our deploy region is ap-southeast-3b');
+  expect(got).toContain('On-call owner is @mkovacs-ledger');
+});
+
+test('counts, estimates and markdown fragments are not settings', () => {
+  const r = specificsBlock(
+    [asst('There are 12 failures. It was 3 tries. The cache is ~15 MB. So the corpus is **2.4K** rows. Email bob@example.com.')],
+    '',
+    6000,
+  );
+  const got = items(r?.text);
+  for (const bad of ['There are 12', 'It was 3', 'The cache is ~15', 'So the corpus is **2']) {
+    expect(got.some((s) => s.startsWith(bad))).toBe(false);
+  }
+  expect(got.some((s) => s.startsWith('@example'))).toBe(false);
+});
+
+test('a value the agent reported competes with what the person typed on equal terms', () => {
+  // two lines fit: the person's own clause and the agent's looked-up value, ahead of a person's plain path
+  const r = specificsBlock(
+    [
+      user('For acme-billing, the staging port is 29860. Also see notes/run_log_7.md'),
+      asst('`settlement_retry_timeout_ms` is 7350 (line 699 of services/billing/config.yaml).'),
+    ],
+    '',
+    300,
+  );
+  const got = items(r?.text);
+  expect(got).toContain('For acme-billing, the staging port is 29860');
+  expect(got).toContain('settlement_retry_timeout_ms = 7350');
+});

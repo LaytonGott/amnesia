@@ -10,14 +10,15 @@ export type Msg = {
 export const MARKER = '[amnesia]';
 
 export type Kind =
-  | 'setting' | 'url' | 'hash' | 'version' | 'code' | 'path' | 'env' | 'file' | 'quoted' | 'flag' | 'dotted' | 'ident';
+  | 'setting' | 'url' | 'hash' | 'version' | 'code' | 'handle' | 'path' | 'env' | 'file' | 'quoted' | 'flag' | 'dotted' | 'ident';
 
 // what a string is decides most of its rank: a value bound to its key, a
 // commit or a URL cannot be re-derived; a camelCase field name usually can
 // be re-read from the code
 const TIER: Record<Kind, number> = {
-  setting: 5, url: 5, hash: 5, version: 4, code: 4, path: 4, env: 4, file: 3, quoted: 3, flag: 2, dotted: 2, ident: 1,
+  setting: 5, url: 5, hash: 5, version: 4, code: 4, handle: 4, path: 4, env: 4, file: 3, quoted: 3, flag: 2, dotted: 2, ident: 1,
 };
+const PRONOUN = /^(?:it|this|that|there|these|those|which|what|who|he|she|they|we|i|you|here|one|each|all|both|total|count|number)$/i;
 
 const PATH = /(?:[A-Za-z]:)?(?:[\\/]?[\w.@-]+[\\/])+[\w.@-]+/g;
 // a slash between words ("deploy/infra") is prose, not a path
@@ -77,12 +78,19 @@ const PATTERNS: Pattern[] = [
   {
     kind: 'setting',
     own: true,
-    re: /[^.;!?\n`]{0,60}?\bthe\s+([a-z][\w -]{1,40}?)\s+(?:is|was|are|were|=)\s+`?([^\s`,;()]*\d[^\s`,;()]*?)`?(?=[.,;!?)]?(?:\s|$))/gi,
+    // also "Our deploy region is …", "On-call owner is @…", "Staging API listens on port 18443"
+    re: /[^.;!?\n`]{0,60}?\b(?:(?:the|our|its|their|my|your)\s+)?([A-Za-z][\w -]{1,40}?)\s+(?:is|was|are|were|=|listens on(?: port)?|runs on(?: port)?|lives at|pinned to|set to)\s+`?(@[\w.-]+|[^\s`,;()]*\d[^\s`,;()]*?)`?(?=[.,;!?)]?(?:\s|$))/gi,
     item: (m) => {
       const v = clean(m[2] ?? '');
-      if (!m[1] || !v || !valueOk(v)) return null;
+      const subject = (m[1] ?? '').trim();
+      if (!subject || !v || !valueOk(v)) return null;
+      // "there are 12", "it was 3": no owner, and a small bare count is not a detail
+      if (PRONOUN.test(subject) || /^\d{1,2}$/.test(v)) return null;
+      // markdown, tables, arrows and quotes mean a fragment, not a sentence;
+      // "~15" is an estimate, not an exact value
+      if (/\*\*|\||→|"/.test(m[0]) || /^[~*≈]/.test(v)) return null;
       const s = clean(m[0].replace(/`/g, '').replace(/\s+/g, ' ').trim());
-      return { s, probe: v.length >= 5 ? [v] : [m[1].trim(), v] };
+      return { s, probe: v.length >= 5 ? [v] : [subject, v] };
     },
   },
   // key: value, key = value, KEY=value, "key": "value" anywhere
@@ -111,6 +119,8 @@ const PATTERNS: Pattern[] = [
   { kind: 'hash', re: /(?<![\w:])[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){3,}(?![\w:])/g },
   // tickets and error codes: OPS-77412, E-LEDGER-4471
   { kind: 'code', re: /\b(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/g },
+  // people and teams: @mkovacs-ledger (not emails, not decorators in code)
+  { kind: 'handle', own: true, re: /(?<![\w.@])@[A-Za-z][\w.-]{2,38}(?<![.-])/g },
   { kind: 'flag', re: /(?<![\w-])--[a-z][\w-]{2,}/g },
   { kind: 'env', re: /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g },
   { kind: 'ident', re: /\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]+)+\b/g },
@@ -197,13 +207,14 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
   dropped.forEach((m, i) => {
     for (const { text, from } of sources(m, answered)) {
       if (!text) continue;
-      const w = WEIGHT[from];
       const capped = text.length > 200_000 ? text.slice(-200_000) : text;
       // one occurrence matched by two patterns (report_9.txt: file and dotted) counts once
       const here = new Set<string>();
       const own = OWN.has(from);
       for (const pat of PATTERNS) {
         if (pat.own && !own) continue;
+        // a value the agent looked up and reported is as settled as one the person typed
+        const w = pat.own && pat.kind === 'setting' ? WEIGHT.user : WEIGHT[from];
         const { re } = pat;
         re.lastIndex = 0;
         for (const match of capped.matchAll(re)) {

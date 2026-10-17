@@ -347,6 +347,44 @@ Remaining gaps:
 - prose without "the" ("Our deploy region is …", "On-call owner is …");
 - `@handles`.
 
+### v9: the remaining phrasings, and agent-reported values on equal terms
+
+- **More prose clauses are caught.**
+  - Clauses without "the": "Our deploy region is …", "On-call owner is …".
+  - New verbs: "listens on port", "runs on", "pinned to", "set to".
+  - `@handle` values.
+  - Guards: no pronoun subjects ("there are 12"), no bare one- or two-digit
+    counts, no estimates (`~15`), and no markdown, table, arrow or quoted
+    fragments.
+- **`@handles` are their own kind** (tier 4), matched only in what the
+  person or the agent wrote. Emails don't match.
+- **Settings stated by the agent weigh the same as the person's.** A value
+  the agent looked up and reported ("`settlement_retry_timeout_ms` is
+  7350") is as settled as one the person typed. In v8 those lost the
+  budget to the person's own clauses.
+
+| | v8 | v9 |
+|---|---|---|
+| stress runs: dropped facts carried (replay, 8 runs) | 662/798 | **766/798**, all bound |
+| natural lossy runs: dropped facts carried (replay) | 97/97 | 97/97 |
+| real data: dropped-prompt strings present | 30.9% | 30.9% |
+| real data: named settings brought back | 30.6% | 32.4% |
+| real data: high-value strings the person/agent wrote | 50.2% | 48.5% |
+| slowest extraction | 412 ms | 506 ms |
+
+The trade on real data is a 1.7-point dip in agent- and person-written
+high-value strings. It splits about evenly between the wider prose patterns
+(their items count as "other" in the audit, which cannot credit a clause)
+and the equal weighting. That's the cost of carrying 104 more facts per
+8 stress runs.
+
+Left uncarried under stress, all for budget:
+- one ticket (`OPS-77412`);
+- one cert serial;
+- two cron schedules.
+
+Every remaining loss is the 6,000-char budget.
+
 ## Validation
 
 1. **Offline, $0:** extend `bench/audit-real.mjs` to run `specificsBlock` on
