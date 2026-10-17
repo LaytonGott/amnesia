@@ -95,6 +95,56 @@ Honest gap: a rule dropped and injected in one round can fall off in later
 rounds — each injection covers its own round. Invariants you cannot afford to
 lose belong in CLAUDE.md (protect), which compaction cannot touch.
 
+## Plugin A/B: exact-detail recall after compaction (2026-10-17)
+
+`node bench/run-ab.mjs --facts 100 --reps 3` (Claude Code 2.1.302,
+`--model sonnet`). One session is seeded over 10 turns. It holds 80 stated
+facts across 35 services and 20 facts the agent looks up in ten ~70 KB
+files, about 190k tokens of context. The seeded session is forked per arm and
+rep, given a plain `/compact`, then probed once with **tools disabled** (100
+exact-value questions, "unknown" allowed).
+
+Controls:
+- auto-memory off
+- user settings, plugins and MCP servers not loaded
+- nothing installed
+- arm C differs only by `--plugin-dir plugin`
+
+| scenario | arm | runs | correct | in summary | correct but not in summary |
+|---|---|---|---|---|---|
+| 20 salient facts | A baseline | 1 | 20/20 | 20/20 | 0 |
+| 20 salient facts | C plugin | 1 | 20/20 | 20/20 | 0 |
+| 100 facts | A baseline | 3 | 100.0 | 100.0 | 0 |
+| 100 facts | C plugin | 3 | 96.0 | 94.3 | 2.0 |
+
+What it says:
+
+- **At this scale the summarizer barely loses anything.** It compressed
+  191k tokens to about 5k, yet kept all 100 facts in 5 of 6 runs. The
+  20-fact smoke run kept everything too. In this regime the plugin has
+  almost nothing to add, and the arm means mostly measure which run drew a
+  lossy summary.
+- **Arm C's lower mean is summary variance, not harm.** The plugin never
+  changes the summary. One C run (C3) drew a summary that dropped 17 facts,
+  all of them file lookups.
+- **When the summary did drop facts, the block worked as designed.** It
+  carried 6 of the 17. The agent answered 5 of those 6 correctly, and 1 of
+  the 11 the block lacked. It answered "unknown" to the rest rather than
+  guessing.
+- **The extractor, not the mechanism, capped the gain.** C3's block spent
+  its budget on absolute file paths and `/opt/ledger/bin/*` paths from a
+  cron file. The missing values were never candidates: bare numbers next to
+  keys (`7350`), uppercase codes (`E-LEDGER-4471`, `OPS-77412`) and
+  colon-hex serials (`6A:3F:91:0C:5D`). Each of them sat in backticks in the
+  agent's own replies.
+
+Not measured here: the 1M-token regime where the real-data audit sees 80%
+of prompt strings lost. A session of that size costs far more to seed. The
+audit's numbers, not this A/B, are the evidence for loss at that scale.
+
+Spend: about $5.30 in total. `total_cost_usd` is cumulative across resumes
+and forks, so the runner logs per-call deltas.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
