@@ -270,6 +270,51 @@ Notes:
   parent's.
 - **Spend:** about $1.67.
 
+### Unprompted, with ordinary tools: Claude Code's own route matches recall
+
+`node bench/run-recall.mjs --unprompted`:
+- **One compaction,** with the same brevity instruction and a 1,000-char
+  block.
+- **A natural question:** "we're about to cut the release, remind me of
+  these exact values", with no mention of recall or of looking anything
+  up.
+- **Ordinary tools:** Read, Grep and Glob were available; no shell.
+- **Two arms:** UB forks the compacted session with recall off; UR resumes
+  it with recall on.
+
+| arm | correct (of 20) | what the agent did | spend |
+|---|---|---|---|
+| UB, recall off | **20** | 7 Grep + 1 Glob, mostly over the session's own transcript file | $0.19 |
+| UR, recall on | **20** | 16 recall calls, unprompted | $0.23 |
+
+What this says:
+- **Agents do reach for recall on their own,** and use it well.
+- **But Claude Code already gives them a way back.** Its summary ends with
+  the path to the full transcript ("read the full transcript at …"). With
+  Grep allowed, the agent searched that file with regex alternation and
+  recovered every fact, in fewer calls and slightly cheaper.
+- **So the earlier no-tool numbers overstate the real-world gap.** The
+  stress A/B scored 2 vs 85 of 100, and the recall check 0 vs 20 of 20,
+  but those probes ran with tools off. They show what the summary and the
+  block carry, not what an agent with Grep can reach.
+
+Where amnesia still adds something an agent with Grep lacks:
+- **Details the agent doesn't know it lost.** Recall and Grep both need the
+  agent to realize something is missing and go looking. Here it was asked
+  directly about specific values. The block is the only part that puts lost
+  details in front of the agent unasked, and this bench does not measure
+  how often unasked loss leads an agent astray.
+- **Tool results Claude Code cleared.** The transcript stores only the
+  placeholder, so Grep finds nothing. Recall has the original. This session
+  had 3 such results.
+- **Places the transcript isn't reachable:** permission rules that deny
+  reading `~/.claude`, sandboxes, and setups without file tools. There,
+  recall is the only way back.
+- **Clean results.** Recall returns ranked snippets; Grep over JSONL returns
+  escaped JSON lines. In this test that made no difference to accuracy.
+
+Spend: $1.06.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

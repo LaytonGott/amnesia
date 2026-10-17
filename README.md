@@ -33,6 +33,22 @@ same model; the arms differ only by the plugin.
 - **The rest is budget.** Most of the 15 missed per run simply didn't fit in
   the block's ~1.5k-token budget.
 
+**Read that with tools in mind.** Those probes ran with tools off. Claude
+Code's summary ends with the path to the full transcript, and an agent that
+knows it lost something and has Grep can search that file itself. In an
+unprompted test with ordinary tools, it recovered 20 of 20 that way, as did
+an agent using amnesia's recall tool.
+
+What amnesia adds over that:
+- **Lost details shown unasked.** The block puts them in front of the agent
+  before it realizes they're missing, which is the case the transcript
+  route can't cover.
+- **Tool results Claude Code cleared.** The transcript keeps only a
+  placeholder.
+- **Setups where the transcript isn't readable.**
+
+Details: [docs/EFFICACY.md](docs/EFFICACY.md).
+
 **How often summaries lose details depends on session length.**
 - **At ~190k tokens it's rare.** Unforced summaries kept every fact in 17 of
   20 runs. When they did drop facts, the block carried them and the agent

@@ -58,6 +58,39 @@ const probe =
   asked.map((f) => `${f.id}: ${f.q}`).join("\n");
 
 const results = {};
+const answersOf = (p) => { try { return JSON.parse((p.result || "").match(/\{[\s\S]*\}/)?.[0] ?? "{}"); } catch { return {}; } };
+const toolUsesAfterBoundary = (id) => {
+  const rows = readFileSync(transcript(id), "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+  const b = rows.map((o, i) => (o.subtype === "compact_boundary" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+  return rows.slice(b + 1).flatMap((o) => (o.type === "assistant" && Array.isArray(o.message?.content) ? o.message.content : [])).filter((x) => x?.type === "tool_use").map((x) => String(x.name));
+};
+
+// --unprompted: the agent is never told recall exists or that it should look
+// anything up; normal read tools stay available (no shell). One compaction,
+// two probes from it: UB forks it with recall off, UR resumes it with recall on.
+if (args.includes("--unprompted")) {
+  const natural =
+    "We're about to cut the ledger-holds release. Before I sign off, remind me of these exact values " +
+    "(reply with one JSON object keyed by id; say \"unknown\" if you're not sure):\n" +
+    asked.map((f) => `${f.id}: ${f.q}`).join("\n");
+  const on = { autoMemoryEnabled: false, pluginConfigs: { "amnesia@inline": { options: { budgetChars: 1000, recall: true } } } };
+  const off = { autoMemoryEnabled: false, pluginConfigs: { "amnesia@inline": { options: { budgetChars: 1000, recall: false } } } };
+  const READ_ONLY = ["--disallowedTools", "Bash,PowerShell,WebFetch,WebSearch,Task,Edit,Write,NotebookEdit", "--allowedTools", "Read,Grep,Glob,mcp__amnesia__recall"];
+  const c = claude([`/compact ${LOSSY}`, "--resume", seed.sessionId, "--fork-session"], on, "compact");
+  for (const [arm, extra, settings] of [["UB", ["--resume", c.session_id, "--fork-session"], off], ["UR", ["--resume", c.session_id], on]]) {
+    const p = claude([natural, ...extra, ...READ_ONLY], settings, `probe ${arm}`);
+    const uses = toolUsesAfterBoundary(p.session_id);
+    const ans = answersOf(p);
+    const correct = asked.filter((f) => norm(ans[f.id]).includes(norm(f.a)));
+    const tally = uses.reduce((m, n) => ({ ...m, [n]: (m[n] ?? 0) + 1 }), {});
+    results[arm] = { session: p.session_id, correct: correct.length, of: asked.length, toolUses: tally, unknown: asked.filter((f) => norm(ans[f.id]) === "unknown").length };
+    console.log(`  ${arm}: correct ${correct.length}/${asked.length}, unknown ${results[arm].unknown}, tools ${JSON.stringify(tally)}`);
+  }
+  writeFileSync(join(OUT, "recall-unprompted.json"), JSON.stringify({ spent, results }, null, 2));
+  console.log(JSON.stringify({ spent: Number(spent.toFixed(2)), results }));
+  process.exit(0);
+}
+
 for (const arm of ["R", "B"]) {
   console.log(`arm ${arm} (${arm === "R" ? "recall on" : "recall off"})`);
   const settings = { autoMemoryEnabled: false, pluginConfigs: { "amnesia@inline": { options: { budgetChars: 1000, recall: arm === "R" } } } };
