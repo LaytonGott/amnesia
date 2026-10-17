@@ -72,6 +72,19 @@ const PATTERNS: Pattern[] = [
       return { s: `${k} = ${v}`, probe: [k, v] };
     },
   },
+  // "For cobalt-payouts, the staging port is 17448": in prose the clause is
+  // what binds a value to its owner, so the clause itself is the item
+  {
+    kind: 'setting',
+    own: true,
+    re: /[^.;!?\n`]{0,60}?\bthe\s+([a-z][\w -]{1,40}?)\s+(?:is|was|are|were|=)\s+`?([^\s`,;()]*\d[^\s`,;()]*?)`?(?=[.,;!?)]?(?:\s|$))/gi,
+    item: (m) => {
+      const v = clean(m[2] ?? '');
+      if (!m[1] || !v || !valueOk(v)) return null;
+      const s = clean(m[0].replace(/`/g, '').replace(/\s+/g, ' ').trim());
+      return { s, probe: v.length >= 5 ? [v] : [m[1].trim(), v] };
+    },
+  },
   // key: value, key = value, KEY=value, "key": "value" anywhere
   {
     kind: 'setting',
@@ -161,9 +174,18 @@ function sources(m: Msg, answered: Set<string>): { text: string; from: Source }[
   return out;
 }
 
+// the words that say what a value belongs to come before it ("For
+// brisk-payouts, the pinned SDK version is 5.13.1"), so the snippet leans
+// left and runs from the start of the value's sentence to its end
 function contextOf(text: string, at: number, len: number): string {
-  const a = Math.max(0, at - 35);
-  const b = Math.min(text.length, at + len + 35);
+  let a = Math.max(0, at - 70);
+  let b = Math.min(text.length, at + len + 20);
+  const left = text.slice(a, at);
+  const cut = Math.max(left.lastIndexOf('. '), left.lastIndexOf('\n'), left.lastIndexOf('; '));
+  if (cut >= 0) a += cut + 1;
+  const right = text.slice(at + len, b);
+  const end = right.search(/[.;]\s|\n/);
+  if (end >= 0) b = at + len + end + 1;
   return text.slice(a, b).replace(/\s+/g, ' ').trim();
 }
 
@@ -211,7 +233,7 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
           // keep the context from the best source seen: the person's sentence beats a file dump
           if (w >= h.best) {
             h.best = w;
-            h.context = contextOf(capped, match.index ?? 0, s.length);
+            h.context = contextOf(capped, match.index ?? 0, match[0].length);
           }
         }
       }
@@ -262,7 +284,8 @@ export function specificsBlock(
   let used = head.length;
   for (const h of top) {
     if (chosen.some((c) => c.includes(h.s))) continue;
-    const ctx = h.context.length > 60 ? h.context.slice(0, 57) + '...' : h.context;
+    // cut from the right: the left end holds the subject
+    const ctx = h.context.length > 80 ? h.context.slice(0, 77) + '...' : h.context;
     // key = value already says what the value is; context would only spend budget
     const line = ctx && ctx !== h.s && h.kind !== 'setting' ? `- ${h.s} — "${ctx}"` : `- ${h.s}`;
     if (used + line.length + 1 > budgetChars) continue;

@@ -96,7 +96,7 @@ if (FACTS === 100) {
   services.forEach((svc, k) => {
     for (const [name, gen] of [ATTRS[k % 8], ATTRS[(k + 3) % 8]]) {
       const v = gen();
-      MORE_STATED.push({ id: `F${id++}`, say: `For ${svc}, the ${name} is ${v}.`, q: `What is the ${name} for ${svc}?`, a: v });
+      MORE_STATED.push({ id: `F${id++}`, say: `For ${svc}, the ${name} is ${v}.`, q: `What is the ${name} for ${svc}?`, a: v, owner: svc });
     }
   });
   const extra = [
@@ -203,6 +203,13 @@ function transcriptOf(sessionId) {
 // ---- scoring ----------------------------------------------------------------
 
 const ALL = [...STATED, ...HIDDEN, ...MORE_STATED, ...MORE_HIDDEN].sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)));
+// what a value belongs to, for checking a block line binds the two (bench/replay-ab.mts)
+const BASE_OWNER = { F1: "commit", F2: "env var", F3: "port", F4: "ticket", F5: "region", F6: "pydantic", F7: "artifacts", F8: "migration", F9: "status", F10: "on-call" };
+for (const f of ALL) {
+  if (f.owner) continue;
+  if (BASE_OWNER[f.id]) f.owner = BASE_OWNER[f.id];
+  else if (f.line) f.owner = (f.line.match(/^([\w-]+) cert_serial/) ?? f.line.match(/^\s*"?([A-Za-z_][\w-]*)"?\s*[:=]/) ?? f.line.match(/\b(FATAL|ERROR|cert_serial|reconcile|export)\b/) ?? [])[1] ?? null;
+}
 const STATED_IDS = new Set([...STATED, ...MORE_STATED].map((f) => f.id));
 const N = ALL.length;
 const norm = (s) => String(s ?? "").toLowerCase().replace(/[`"'\s]+/g, " ").trim();
@@ -216,6 +223,9 @@ function score(answerText) {
 }
 
 // ---- run ----------------------------------------------------------------------
+
+mkdirSync(OUT, { recursive: true });
+writeFileSync(join(OUT, "facts.json"), JSON.stringify(ALL.map(({ id, q, a, owner }) => ({ id, q, a, owner })), null, 2));
 
 if (args.includes("--dry")) {
   const dup = ALL.map((f) => f.a).filter((a, i, xs) => xs.indexOf(a) !== i);
@@ -267,6 +277,9 @@ const probe =
 
 // --tag names a fresh batch over the same seeded session (runs-<tag>.json)
 const TAG = opt("tag", "");
+// --compact-instructions forces a lossy summary in every run (a stress condition:
+// it tests what the block carries and binds when the summary loses, both arms alike)
+const COMPACT_INSTR = opt("compact-instructions", "");
 const MAX_SPEND = Number(opt("max-spend", Infinity));
 const runsPath = join(OUT, TAG ? `runs-${TAG}.json` : "runs.json");
 const runs = existsSync(runsPath) ? JSON.parse(readFileSync(runsPath, "utf8")) : [];
@@ -279,7 +292,7 @@ for (let rep = 1; rep <= REPS; rep++) {
     }
     console.log(`arm ${arm} rep ${rep}`);
     const plug = arm === "C" ? ["--plugin-dir", PLUGIN] : [];
-    const c = claude(["/compact", "--resume", seedId, "--fork-session", ...plug], `compact ${arm}${rep}`);
+    const c = claude([COMPACT_INSTR ? `/compact ${COMPACT_INSTR}` : "/compact", "--resume", seedId, "--fork-session", ...plug], `compact ${arm}${rep}`);
     const forkId = c.session_id;
     const p = claude([probe, "--resume", forkId, "--tools", "", ...plug], `probe ${arm}${rep}`);
     const tp = transcriptOf(forkId);

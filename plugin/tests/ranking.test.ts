@@ -94,8 +94,9 @@ test('tickets, error codes and colon-hex serials are captured', () => {
     '',
     6000,
   );
+  // each is carried, bare or inside the clause that names it
   const got = items(r?.text);
-  for (const s of ['OPS-77412', 'E-LEDGER-4471', '6A:3F:91:0C:5D']) expect(got).toContain(s);
+  for (const s of ['OPS-77412', 'E-LEDGER-4471', '6A:3F:91:0C:5D']) expect(got.some((i) => i.includes(s))).toBe(true);
 });
 
 test('a backticked bare name ranks as an identifier, below a commit', () => {
@@ -121,5 +122,29 @@ test('an absolute path only passed to a tool ranks below what the person said', 
     '',
     TIGHT,
   );
-  expect(items(r?.text)[0]).toBe('INC-20931');
+  expect(items(r?.text)[0]).toContain('INC-20931');
+});
+
+test('a value stated in prose travels with the clause that names its owner', () => {
+  const r = specificsBlock(
+    [user('For cobalt-payouts, the staging port is 17448. For brisk-payouts, the pinned SDK version is 5.13.1.')],
+    '',
+    6000,
+  );
+  const got = items(r?.text);
+  expect(got).toContain('For cobalt-payouts, the staging port is 17448');
+  expect(got).toContain('For brisk-payouts, the pinned SDK version is 5.13.1');
+  // the bare value is inside its clause, so it is not listed again
+  expect(got.includes('5.13.1')).toBe(false);
+});
+
+test("the context snippet keeps the words before a value, from the start of its sentence", () => {
+  const r = specificsBlock(
+    [asst('Unrelated earlier sentence here. The edge-gateway certificate on the partner ingress has serial 6A:3F:91:0C:5D and expires soon.')],
+    '',
+    6000,
+  );
+  const line = (r?.text ?? '').split('\n').find((l) => l.startsWith('- 6A:3F:91:0C:5D')) ?? '';
+  expect(line).toContain('The edge-gateway certificate on the partner ingress');
+  expect(line.includes('Unrelated earlier sentence')).toBe(false);
 });
