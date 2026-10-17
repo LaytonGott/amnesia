@@ -4,7 +4,7 @@ import { specificsBlock, type Msg } from '../hooks/specifics.ts';
 const user = (text: string): Msg => ({ role: 'user', text, toolUses: [] });
 const asst = (text: string, toolUses: Msg['toolUses'] = []): Msg => ({ role: 'assistant', text, toolUses });
 const items = (block: string | undefined) =>
-  (block ?? '').split('\n').slice(1).map((l) => l.replace(/^- /, '').split(' — "')[0]);
+  (block ?? '').split('\n').slice(1).map((l) => l.replace(/^- /, '').split(' — "')[0] ?? '');
 const TIGHT = 330;
 
 const idents = Array.from({ length: 30 }, (_, i) => `fieldName${i}Value`).join(' ');
@@ -74,4 +74,52 @@ test('hex runs inside a UUID are not taken for commits', () => {
   const got = items(r?.text);
   expect(got.includes('0ef02c3')).toBe(true);
   expect(got.some((s) => s === '3f2b8c1d' || s === '1e5f6a7b8c9d')).toBe(false);
+});
+
+test('a value the agent named in prose keeps its key, and counts as kept only with both', () => {
+  const said = asst('`settlement_retry_timeout_ms` is 7350 and `chargeback_hold_days` is `41`.');
+  const r = specificsBlock([said], 'Summary: settlement_retry_timeout_ms was looked up.', 6000);
+  const got = items(r?.text);
+  expect(got).toContain('settlement_retry_timeout_ms = 7350');
+  expect(got).toContain('chargeback_hold_days = 41');
+  // the line carries no context: key = value already says what it is
+  expect((r?.text ?? '').includes('settlement_retry_timeout_ms = 7350 —')).toBe(false);
+  const both = specificsBlock([said], 'settlement_retry_timeout_ms = 7350, chargeback_hold_days = 41', 6000);
+  expect(items(both?.text).some((s) => s.startsWith('settlement_retry_timeout_ms'))).toBe(false);
+});
+
+test('tickets, error codes and colon-hex serials are captured', () => {
+  const r = specificsBlock(
+    [asst('Tracked in OPS-77412; the FATAL was E-LEDGER-4471 and the edge cert serial is 6A:3F:91:0C:5D.')],
+    '',
+    6000,
+  );
+  const got = items(r?.text);
+  for (const s of ['OPS-77412', 'E-LEDGER-4471', '6A:3F:91:0C:5D']) expect(got).toContain(s);
+});
+
+test('a backticked bare name ranks as an identifier, below a commit', () => {
+  const r = specificsBlock([asst('Added `created_at` and `item_key`; merged as `0ef02c3`.')], '', TIGHT);
+  expect(items(r?.text)[0]).toBe('0ef02c3');
+});
+
+test('code defaults and type hints are not settings', () => {
+  const r = specificsBlock([asst('`intervention_path` is `None`, `allow_quality` is `bool`, `max_cells` is `3`.')], '', 6000);
+  const got = items(r?.text);
+  expect(got.some((s) => s.startsWith('intervention_path ='))).toBe(false);
+  expect(got.some((s) => s.startsWith('allow_quality ='))).toBe(false);
+  expect(got).toContain('max_cells = 3');
+});
+
+test('an absolute path only passed to a tool ranks below what the person said', () => {
+  const r = specificsBlock(
+    [
+      user('the incident is INC-20931'),
+      asst('editing', [{ tool_use_id: 'e1', tool: 'Edit', input: { file_path: 'C:/work/repo/src/very/deep/module_a.ts' }, text: 'ok' }]),
+      asst('editing', [{ tool_use_id: 'e2', tool: 'Edit', input: { file_path: 'C:/work/repo/src/very/deep/module_a.ts' }, text: 'ok' }]),
+    ],
+    '',
+    TIGHT,
+  );
+  expect(items(r?.text)[0]).toBe('INC-20931');
 });

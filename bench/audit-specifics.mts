@@ -12,9 +12,13 @@
 //   promptAtoms  exact strings from dropped user prompts (same regex as
 //                bench/audit-real.mjs, the EFFICACY.md 29.1% figure):
 //                survival in summary alone vs summary + block
-//   highValue    hashes, URLs, versions, paths, env vars anywhere in the
-//                dropped content and absent from the summary: share the
-//                block brings back
+//   highValue    hashes, serials, URLs, versions, codes, paths, env vars
+//                anywhere in the dropped content and absent from the
+//                summary: share the block brings back (also for the subset
+//                the person or the agent actually wrote)
+//   settings     named values stated in prose (`key` is 7350, key_x = 41)
+//                missing from the summary: share the block brings back
+//                with key and value on one line
 //   composition  what the block spends its budget on, and how many items
 //                only ever appeared in Read/Grep/Glob output (re-readable
 //                from disk)
@@ -22,13 +26,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { eventsOf, type Event, type Msg } from './events.mts';
 
-type Msg = {
-  role: 'user' | 'assistant';
-  text: string;
-  toolUses: { tool_use_id?: string; tool: string; input: Record<string, unknown>; text?: string }[];
-  toolResults?: { tool_use_id?: string; text?: string }[];
-};
 type Block = { text: string; candidates: number; missing: number; included: number } | null;
 
 const root = process.argv[2] || join(homedir(), '.claude', 'projects');
@@ -37,128 +36,47 @@ const { specificsBlock } = (await import(pathToFileURL(modPath).href)) as {
   specificsBlock: (d: Msg[], s: string, b: number) => Block;
 };
 const BUDGET = Number(process.env.AUDIT_BUDGET || 6000);
-const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'NotebookRead', 'LS']);
 
 const COMPOUND_RE = /\b[A-Za-z][A-Za-z0-9]*(?:[._/\\-][A-Za-z0-9]+)+\b/g;
 
 function kindOf(s: string): string {
+  if (/ = /.test(s)) return 'setting';
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) return 'url';
   if (/^(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}$/.test(s)) return 'hash';
+  if (/^[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){3,}$/.test(s)) return 'serial';
   if (/^v?\d+\.\d+\.\d+/.test(s)) return 'version';
+  if (/^(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$/.test(s)) return 'code';
   if (/^[A-Z][A-Z0-9]*_[A-Z0-9_]+$/.test(s)) return 'env';
   if (/[\\/]/.test(s)) return 'path';
   if (/^[\w-]+\.[A-Za-z0-9]{1,8}$/.test(s)) return 'file';
   return 'other';
 }
-const HIGH = new Set(['url', 'hash', 'version', 'env', 'path']);
+const HIGH = new Set(['url', 'hash', 'serial', 'version', 'code', 'env', 'path']);
 const HV_RE: RegExp[] = [
   /\b[a-z][a-z0-9+.-]*:\/\/[^\s)>"'`\]]+/g,
   /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g,
+  /(?<![\w:])[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){3,}(?![\w:])/g,
   /\bv?\d+\.\d+\.\d+(?:[-+][\w.]+)?\b/g,
+  /\b(?=[A-Z0-9-]*\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b/g,
   /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g,
   /(?:[A-Za-z]:|~|\.{1,2})?[\\/][\w.@-]+(?:[\\/][\w.@-]+)*\.[A-Za-z0-9]{1,8}\b|\b[\w.@-]+(?:[\\/][\w.@-]+)+\.[A-Za-z0-9]{1,8}\b/g,
 ];
+// a named value someone stated in prose: `key` is 7350, key_name = 41, KEY: 9
+// (value with a digit, so it is a concrete setting, not a type or a word)
+const SETTING_RE = /`?\b([A-Za-z_][\w.-]*[_.][\w.-]*|[A-Z][A-Z0-9_]{3,})`?\s*(?:is|=|:)\s*`?([^\s`,;()]*\d[^\s`,;()]*)/g;
 const trimEnd = (s: string) => s.replace(/[.,:;)\]}'"`]+$/, '');
 
-const textOf = (c: unknown): string =>
-  typeof c === 'string'
-    ? c
-    : Array.isArray(c)
-      ? c.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text).join('\n')
-      : '';
+// synthetic sessions from this repo's own benches are not real data
+const SYNTHETIC = /bench-results|scratchpad-compact-proj/;
 
 function listFiles(): string[] {
   const out: string[] = [];
   for (const p of readdirSync(root, { withFileTypes: true })) {
-    if (!p.isDirectory()) continue;
+    if (!p.isDirectory() || SYNTHETIC.test(p.name)) continue;
     for (const f of readdirSync(join(root, p.name), { withFileTypes: true })) {
       if (f.isFile() && f.name.endsWith('.jsonl')) out.push(join(root, p.name, f.name));
     }
   }
-  return out;
-}
-
-type Event = {
-  key: string;
-  dropped: Msg[];
-  prompts: string[];
-  readOnly: (s: string) => boolean;
-  summary: string;
-};
-
-function eventsOf(path: string): Event[] {
-  const rows: any[] = [];
-  for (const l of readFileSync(path, 'utf8').split('\n')) {
-    if (!l) continue;
-    try {
-      rows.push(JSON.parse(l));
-    } catch {}
-  }
-  const bounds = rows.map((o, i) => (o?.subtype === 'compact_boundary' ? i : -1)).filter((i) => i >= 0);
-  const out: Event[] = [];
-  bounds.forEach((bi, k) => {
-    const prev = k > 0 ? bounds[k - 1]! : -1;
-    const prevPres = new Set<string>(k > 0 ? rows[prev]?.compactMetadata?.preservedMessages?.uuids ?? [] : []);
-    const curPres = new Set<string>(rows[bi]?.compactMetadata?.preservedMessages?.uuids ?? []);
-    const summaryRow = rows.slice(bi + 1).find((o) => o?.isCompactSummary);
-    if (!summaryRow) return;
-    const inRange = rows.filter(
-      (o, i) =>
-        (o?.type === 'user' || o?.type === 'assistant') &&
-        ((i > prev && i < bi) || (o.uuid && prevPres.has(o.uuid))) &&
-        !(o.uuid && curPres.has(o.uuid)),
-    );
-    if (inRange.length === 0) return;
-    const results = new Map<string, string>();
-    for (const o of inRange) {
-      if (o.type !== 'user' || !Array.isArray(o.message?.content)) continue;
-      for (const b of o.message.content) {
-        if (b?.type === 'tool_result') results.set(b.tool_use_id, textOf(b.content));
-      }
-    }
-    const dropped: Msg[] = [];
-    const prompts: string[] = [];
-    const readTexts: string[] = [];
-    const otherTexts: string[] = [];
-    for (const o of inRange) {
-      const c = o.message?.content;
-      if (o.type === 'assistant') {
-        const toolUses = Array.isArray(c)
-          ? c
-              .filter((b: any) => b?.type === 'tool_use')
-              .map((b: any) => ({ tool_use_id: b.id, tool: b.name, input: b.input ?? {}, text: results.get(b.id) }))
-          : [];
-        dropped.push({ role: 'assistant', text: textOf(c), toolUses });
-        otherTexts.push(textOf(c));
-        for (const u of toolUses) {
-          otherTexts.push(JSON.stringify(u.input));
-          (READ_TOOLS.has(u.tool) ? readTexts : otherTexts).push(u.text ?? '');
-        }
-      } else {
-        const toolResults = Array.isArray(c)
-          ? c.filter((b: any) => b?.type === 'tool_result').map((b: any) => ({ tool_use_id: b.tool_use_id, text: textOf(b.content) }))
-          : [];
-        const text = textOf(c);
-        dropped.push({ role: 'user', text, toolUses: [], toolResults });
-        if (!toolResults.length && !o.isMeta && !o.isCompactSummary && text.trim()) {
-          prompts.push(text);
-          otherTexts.push(text);
-        } else if (!toolResults.length) {
-          otherTexts.push(text);
-        }
-      }
-    }
-    const other = otherTexts.join('\n');
-    const read = readTexts.join('\n');
-    const md = rows[bi].compactMetadata ?? {};
-    out.push({
-      key: `${rows[bi].timestamp}|${md.preTokens}|${md.postTokens}`,
-      dropped,
-      prompts,
-      readOnly: (s) => read.includes(s) && !other.includes(s),
-      summary: textOf(summaryRow.message?.content),
-    });
-  });
   return out;
 }
 
@@ -180,6 +98,10 @@ const t = {
   atomsInSummaryOrBlock: 0,
   hvMissing: 0,
   hvRecovered: 0,
+  hvOwnMissing: 0,
+  hvOwnRecovered: 0,
+  setMissing: 0,
+  setRecovered: 0,
   items: 0,
   itemsReadOnly: 0,
   blockChars: 0,
@@ -209,15 +131,31 @@ for (const e of best.values()) {
     const s = trimEnd(m[0]);
     if (s.length >= 4 && s.length <= 200 && HIGH.has(kindOf(s))) hv.add(s);
   }
+  const own = [...e.prompts, ...e.dropped.filter((m) => m.role === 'assistant').map((m) => m.text)].join('\n');
   for (const s of hv) {
     if (e.summary.includes(s)) continue;
     const k = kindOf(s);
     t.hvMissing++;
     t.hvMissingByKind[k] = (t.hvMissingByKind[k] ?? 0) + 1;
+    const said = own.includes(s);
+    if (said) t.hvOwnMissing++;
     if (b.includes(s)) {
       t.hvRecovered++;
       t.hvRecoveredByKind[k] = (t.hvRecoveredByKind[k] ?? 0) + 1;
+      if (said) t.hvOwnRecovered++;
     }
+  }
+  const blockLines = b.split('\n');
+  const settings = new Map<string, string>();
+  for (const m of own.matchAll(SETTING_RE)) {
+    const v = trimEnd(m[2] ?? '');
+    if (m[1] && v) settings.set(`${m[1]}\u0000${v}`, m[1]);
+  }
+  for (const [kv, k] of settings) {
+    const v = kv.split('\u0000')[1]!;
+    if (e.summary.includes(k) && e.summary.includes(v)) continue;
+    t.setMissing++;
+    if (blockLines.some((l) => l.includes(k) && l.includes(v))) t.setRecovered++;
   }
   for (const line of b.split('\n').slice(1)) {
     const item = line.replace(/^- /, '').split(' — "')[0] ?? '';
@@ -239,6 +177,8 @@ console.log(`highValue     ${t.hvMissing} missing from summary; block brings bac
 for (const k of Object.keys(t.hvMissingByKind).sort()) {
   console.log(`  ${k.padEnd(8)} ${pct(t.hvRecoveredByKind[k] ?? 0, t.hvMissingByKind[k]!)} of ${t.hvMissingByKind[k]}`);
 }
+console.log(`  said by the person or the agent: ${pct(t.hvOwnRecovered, t.hvOwnMissing)} of ${t.hvOwnMissing}`);
+console.log(`settings      ${t.setMissing} named values stated in prose and missing from summary; block brings back ${pct(t.setRecovered, t.setMissing)}`);
 console.log(`composition   ${t.items} items, avg block ${(t.blockChars / Math.max(1, t.events)).toFixed(0)} chars, slowest ${t.maxMs.toFixed(0)} ms`);
 for (const k of Object.keys(t.byKind).sort((a, b) => t.byKind[b]! - t.byKind[a]!)) {
   console.log(`  ${k.padEnd(8)} ${pct(t.byKind[k]!, t.items)}`);

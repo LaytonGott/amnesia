@@ -67,22 +67,41 @@ on("session.compact", async ($, e, next) => {
    `toolResults[].text`. Kinds: file paths, `name.ext` files, dotted names,
    identifiers containing `_`/digits/camelCase humps, versions, hashes and
    IDs, URLs, CLI flags, env vars, error codes.
+   Also captured since v7:
+   - **Settings: a value bound to its key.** In what the person or the agent
+     wrote, `` `key` is `value` `` or `` `key` is 7350 ``. Anywhere,
+     `key: value`, `key = value`, `KEY=value` or `"key": "value"`. The item
+     is `key = value`, so the value never travels without its name. Code
+     defaults and type hints (`= None`, `= bool`, `= 0.0`) are skipped.
+   - **Codes:** uppercase coded IDs with a digit (`OPS-77412`,
+     `E-LEDGER-4471`), and colon-hex serials (`6A:3F:91:0C:5D`).
+   - **Backticked spans** in what the person or the agent wrote that look
+     like a detail (a digit, a symbol, mixed case). A single name with no
+     digit (`created_at`) ranks as the identifier it is.
 2. Keep those **absent from `summary`** (exact substring, case-sensitive).
+   A setting counts as kept only if the summary has both its key and its
+   value.
 3. Score (as tuned against the audit below):
    `4·source + 2·kind + log2(1+count) + 3·recency − 8 if seen only in
-   Read/Grep/Glob output − 3 if seen only in tool traffic`.
+   Read/Grep/Glob output − 3 if seen only in tool traffic − 12 for a path
+   never written by the person or the agent`.
    - **Source**: what the person typed 4; the agent's text and carried
      items 3; tool inputs and an earlier summary 2; tool output and harness
      rows (`<system-reminder>`, skill bodies) 1; Read/Grep/Glob output 0.
-   - **Kind**: URL and hash 5; version, path and env var 4; file name 3;
-     flag and dotted name 2; identifier 1.
+   - **Kind**:
+     - 5: setting (stated in prose), URL, hash, serial
+     - 4: version, code, path, env var
+     - 3: file name, backticked detail
+     - 2: flag, dotted name, setting found only in tool traffic
+     - 1: identifier
    - Hex runs inside UUIDs are not hashes.
    - A tool_result that mirrors its tool use's text is counted once, and so
      is one occurrence matched by two patterns.
    - A single mention in tool traffic is dropped.
 4. Emit until `budget` (default 6,000 chars ≈ 1.5k tokens, `userConfig`):
-   one line per string with ~60 chars of context from its last occurrence, so
-   the agent knows what it refers to:
+   one line per string with ~60 chars of context from its best occurrence,
+   so the agent knows what it refers to. Settings lines carry no context:
+   `key = value` already says what the value is.
 
 ```
 [amnesia] Exact details the summary above dropped (verbatim from the replaced
@@ -185,6 +204,16 @@ and no settings were touched.
   The first ranker filled the block with code field names (`sessionStore`,
   `formData`, `whyShouldWork`) ahead of commits, PR links and paths. See
   "Ranking audit" below.
+- **Noise guards added:** slash-separated prose (`deploy/infra`) is not taken
+  for a path. A shorter string inside a longer chosen one (`config.ts` in
+  `src/runtime/config.ts`) is dropped. Any `scheme://` URL is caught whole.
+- **Claude Code's summary now ends with a pointer to the full transcript
+  file** ("read the full transcript at: …"). That's a built-in partial
+  answer to `restore`.
+- **The auto-memory feature can capture "remember X" facts on its own**
+  (the probe's region and ticket ended up in the project's `memory/`). Any
+  recall bench has to disable it or probe facts it didn't save.
+- `$.ui.status` is a no-op headless (logged only).
 
 ## Ranking audit (2026-10-17)
 
@@ -239,16 +268,56 @@ How the tuning went:
 The block on the largest real compaction (f3d9 event 16) now leads with
 routes, merge commits (`fdd2b8b`, `9431b59`), env vars (`SUPABASE_URL`) and
 PR links, instead of field names.
-- **Noise guards added:** slash-separated prose (`deploy/infra`) is not taken
-  for a path. A shorter string inside a longer chosen one (`config.ts` in
-  `src/runtime/config.ts`) is dropped. Any `scheme://` URL is caught whole.
-- **Claude Code's summary now ends with a pointer to the full transcript
-  file** ("read the full transcript at: …"). That's a built-in partial
-  answer to `restore`.
-- **The auto-memory feature can capture "remember X" facts on its own**
-  (the probe's region and ticket ended up in the project's `memory/`). Any
-  recall bench has to disable it or probe facts it didn't save.
-- `$.ui.status` is a no-op headless (logged only).
+
+### v7: the gaps the behavioral A/B exposed
+
+The A/B (docs/EFFICACY.md) had one run where the summary dropped 17 facts.
+The v3 block carried 6 of them. Every miss was a kind the extractor never
+looked for:
+- a bare value next to its key (`settlement_retry_timeout_ms` is 7350)
+- uppercase codes (`E-LEDGER-4471`)
+- colon-hex serials (`6A:3F:91:0C:5D`)
+
+Meanwhile absolute file paths only ever passed to tools filled the spare
+budget. v7 adds settings, codes, serials and backticked details, and
+penalizes tool-only paths (see the scoring spec above).
+
+`node bench/replay-ab.mts bench/results/ab-100` replays each A/B run's real
+compaction offline (fork transcript, real summary) with the current
+extractor. It reproduces the live result exactly for v3 (6 of 17). With v7
+it carries all **17 of 17**. That number is partly by construction, since the
+fixes came from that run, so the real-data audit is the check for
+overfitting. For that audit, synthetic bench sessions are now excluded,
+leaving 163 files and 73 compactions, and two measures were added:
+- the high-value strings the person or the agent actually wrote
+- named settings stated in prose (`` `key` is 7350 ``, `key_x = 41`)
+
+| metric (73 real compactions) | v0 | v3 | v7 |
+|---|---|---|---|
+| exact strings from dropped prompts present (summary alone 19.1%) | 26.5% | 28.9% | **30.6%** |
+| named settings stated in prose, missing from summary, brought back | 7.6% | 7.3% | **29.6%** |
+| high-value strings the person or the agent wrote, brought back | 10.6% | **51.2%** | 48.0% |
+| all high-value strings incl. tool traffic, brought back | 1.8% | **6.0%** | 5.2% |
+| items per block (avg chars ~5,490) | 47.7 | 58.4 | 69.6 |
+| slowest extraction | 227 ms | 266 ms | 221 ms |
+
+The trade:
+- **Settings quadrupled**, and prompt strings rose another 1.7 points.
+- **High-value strings the person or the agent wrote dipped 3.2 points.**
+  About 235 settings were gained against about 175 such strings lost.
+- **The fall in all high-value strings is mostly intended.** Paths seen only
+  in tool traffic are deprioritized (path recovery 4.0% → 2.8%).
+
+How v7 got there:
+- **v4:** the first cut made backticked spans tier 3. On real sessions that
+  promoted every backticked column name (`created_at`, `item_key`), and
+  agent-written high-value recovery fell to 43.6%.
+- **v5:** single names now rank as identifiers, and trivial code-default
+  values are skipped.
+- **v6:** settings found only in tool traffic rank as tier 2. This barely
+  mattered, because the settings were mostly prose already.
+- **v7:** settings lines dropped their redundant context. That fit about 20%
+  more items, and lifted every measure.
 
 ## Validation
 

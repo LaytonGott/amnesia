@@ -45,7 +45,7 @@ test('appends the specifics the summary dropped, right after the summary', async
 });
 
 test('leaves out strings the summary already has', async ($, on) => {
-  const full = msg('user', 'Summary: src/runtime/config.ts, config.temperature, arm.config, MAX_RETRY_COUNT, legacy_loader, dataset-identity v2.4.1, .env.local, C:/proj/src/runtime/config.ts', 'S2');
+  const full = msg('user', 'Summary: src/runtime/config.ts, config.temperature, arm.config, MAX_RETRY_COUNT=3, legacy_loader, dataset-identity v2.4.1, .env.local, C:/proj/src/runtime/config.ts', 'S2');
   on('session.compact', core(full, HISTORY.slice(-1)));
   const r = await $.session.compact({ trigger: 'auto', messages: HISTORY });
   if (r.skip !== undefined) throw new Error('skipped');

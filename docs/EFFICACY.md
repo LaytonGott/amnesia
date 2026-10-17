@@ -135,8 +135,16 @@ What it says:
   its budget on absolute file paths and `/opt/ledger/bin/*` paths from a
   cron file. The missing values were never candidates: bare numbers next to
   keys (`7350`), uppercase codes (`E-LEDGER-4471`, `OPS-77412`) and
-  colon-hex serials (`6A:3F:91:0C:5D`). Each of them sat in backticks in the
-  agent's own replies.
+  colon-hex serials (`6A:3F:91:0C:5D`). The agent's own replies had stated
+  every one of them, for example "`settlement_retry_timeout_ms` is 7350".
+- **Extractor v7 closes that gap offline.** `bench/replay-ab.mts` replays
+  C3's real compaction with the current extractor. It reproduces v3's 6 of
+  17 exactly, and v7 carries **17 of 17**. The fixes came from this run, so
+  this is not independent evidence; docs/DESIGN-compact-hook.md has the
+  real-data audit that checks v7 for overfitting.
+  - It has not been re-run live. Whether the agent then recalls the other 11
+    is the next live check. The one live data point is 5 recalled of 6
+    carried.
 
 Not measured here: the 1M-token regime where the real-data audit sees 80%
 of prompt strings lost. A session of that size costs far more to seed. The
