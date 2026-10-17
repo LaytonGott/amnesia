@@ -274,6 +274,8 @@ export function specificsBlock(
   dropped: readonly Msg[],
   summary: string,
   budgetChars: number,
+  // the recall tool is registered: the header points the agent at it
+  recall = false,
 ): { text: string; candidates: number; missing: number; included: number } | null {
   const hits = collect(dropped);
   const n = Math.max(1, dropped.length);
@@ -294,7 +296,8 @@ export function specificsBlock(
 
   const head =
     `${MARKER} Exact details the summary above dropped, verbatim from the replaced history. ` +
-    'For reference only: newer instructions win, and do not redo actions that were already completed.';
+    'For reference only: newer instructions win, and do not redo actions that were already completed.' +
+    (recall ? ' Anything else from before is searchable, verbatim, with the amnesia recall tool.' : '');
   const lines: { owner?: string; text: string }[] = [];
   const chosen: string[] = [];
   let used = head.length;

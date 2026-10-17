@@ -1,7 +1,7 @@
 {
   "name": "amnesia",
-  "version": "0.7.0",
-  "description": "Appends the exact strings a compaction summary dropped (paths, IDs, versions) right after the summary.",
+  "version": "0.8.0",
+  "description": "Keeps what compaction drops: appends the exact details the summary lost, and gives the agent a recall tool over everything earlier in the session.",
   "author": {
     "name": "LaytonGott",
     "url": "https://github.com/LaytonGott"
@@ -14,6 +14,12 @@
       "default": 6000,
       "min": 1000,
       "max": 40000
+    },
+    "recall": {
+      "type": "boolean",
+      "title": "Recall tool",
+      "description": "Archive every tool output and what each compaction drops (under <config>/amnesia/archive/<session>/), and give the agent a recall tool to search them.",
+      "default": true
     }
   }
 }

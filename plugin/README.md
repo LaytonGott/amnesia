@@ -6,6 +6,12 @@ right after it with the exact details that summary dropped: settings, paths,
 URLs, hashes, versions, tickets, env vars and @handles, each with the words
 that say what it belongs to.
 
+It also archives every tool output as it happens, and every message a
+compaction replaces, with secrets redacted, under
+`~/.claude/amnesia/archive/<session id>/`. It gives the agent a tool,
+`mcp__amnesia__recall`, that searches that archive word for word. Turn it
+off with the `recall` setting.
+
 ## Install
 
 In Claude Code (one-step install needs 2.1.275 or later; verified on
@@ -29,6 +35,13 @@ In Claude Code (one-step install needs 2.1.275 or later; verified on
 - **Budget:** the block is capped at 6,000 chars by default (about 1.5k
   tokens of context after each compaction). Change it with the
   `budgetChars` setting (1,000–40,000): `claude plugin configure amnesia`.
+- **Recall:**
+  - The archive is kept per session id, so a forked session starts an
+    empty one.
+  - A search reads the newest 3,000 archive files.
+  - Archives are not pruned yet.
+  - Headless runs need the tool allowed (`--allowedTools
+    mcp__amnesia__recall`); `--tools ""` removes plugin tools too.
 
 Measurements, design and platform facts:
 [docs/DESIGN-compact-hook.md](../docs/DESIGN-compact-hook.md) and

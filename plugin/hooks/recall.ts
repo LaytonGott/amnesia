@@ -1,0 +1,147 @@
+// The archive behind the recall tool: what each compaction dropped and every
+// tool output, as they happen, so the agent can search them later even after
+// Claude Code has summarized them away or cleared old tool results. Pure
+// functions here; register.ts does the I/O through $.fs.
+
+export type Rec = {
+  // 'tool': one tool output as it happened; 'dropped': a message a compaction replaced
+  kind: 'tool' | 'dropped';
+  at: number;
+  // what the snippet says it came from: a tool name, or user / assistant
+  label: string;
+  text: string;
+};
+
+// one archive file holds at most this much text (each $.fs read or write caps at 4 MiB)
+export const MAX_RECORD_CHARS = 200_000;
+const MAX_FILE_CHARS = 3_000_000;
+
+const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n) + `\n[… ${s.length - n} more chars not archived]` : s);
+
+// secrets never reach the archive: private keys, common token formats, and
+// values assigned to key/secret/token/password names
+const SECRETS: [RegExp, string][] = [
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[private key redacted]'],
+  [/\b(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b/g, '[secret redacted]'],
+  [/\b((?:api[_-]?key|secret|token|password|passwd|authorization)["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[^\s"',;]{8,}/gi, '$1[redacted]'],
+];
+export function redact(s: string): string {
+  let out = s;
+  for (const [re, to] of SECRETS) out = out.replace(re, to);
+  return out;
+}
+
+// tool arguments as one short line (the command, the path, the pattern), without amnesia's own reserved keys
+export function inputLine(input: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (k === 'tool' || k === 'tool_use_id' || k === 'agentId' || k === 'consent' || k === 'requestMeta') continue;
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    if (s) parts.push(`${k}: ${s}`);
+  }
+  return cap(parts.join(' · '), 1500);
+}
+
+export function toolRecord(tool: string, input: Record<string, unknown>, text: string, at: number): Rec {
+  const line = inputLine(input);
+  return { kind: 'tool', at, label: tool, text: redact(cap((line ? line + '\n' : '') + text, MAX_RECORD_CHARS)) };
+}
+
+type Dropped = {
+  role: 'user' | 'assistant';
+  text: string;
+  toolUses: readonly { tool: string; input: Record<string, unknown>; text?: string }[];
+};
+
+// what a compaction replaced, as records; split into files that each fit one write.
+// Tool outputs come along (capped): calls made before the plugin loaded were never archived on their own
+export function droppedFiles(dropped: readonly Dropped[], at: number): Rec[][] {
+  const files: Rec[][] = [[]];
+  let size = 0;
+  for (const m of dropped) {
+    const uses = m.toolUses
+      .map((u) => `[${u.tool}] ${inputLine(u.input)}${u.text ? '\n' + cap(u.text, 20_000) : ''}`)
+      .join('\n');
+    const text = redact(cap([m.text, uses].filter(Boolean).join('\n'), MAX_RECORD_CHARS));
+    if (!text.trim() || text.startsWith('[amnesia]')) continue;
+    if (size + text.length > MAX_FILE_CHARS && files[files.length - 1]!.length > 0) {
+      files.push([]);
+      size = 0;
+    }
+    files[files.length - 1]!.push({ kind: 'dropped', at, label: m.role, text });
+    size += text.length;
+  }
+  return files.filter((f) => f.length > 0);
+}
+
+const time = (at: number) => {
+  const d = new Date(at);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+};
+
+// terms of a query: words, and identifier-like tokens kept whole (src/a.ts, OPS-77412, v1.2.3)
+export function termsOf(query: string): string[] {
+  return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}._/:@#=-]+/u).filter((t) => t.length >= 2))];
+}
+
+export function search(records: readonly Rec[], query: string, limit = 6, maxChars = 8000): string {
+  const terms = termsOf(query);
+  const phrase = query.toLowerCase().trim();
+  if (terms.length === 0) return 'Give recall a query: a name, value, path, error or topic to look for.';
+  const scored: { r: Rec; score: number; pos: number }[] = [];
+  for (const r of records) {
+    const low = r.text.toLowerCase();
+    let score = 0;
+    let pos = -1;
+    if (phrase.length >= 3) {
+      const p = low.indexOf(phrase);
+      if (p >= 0) {
+        score += 10;
+        pos = p;
+      }
+    }
+    let matched = 0;
+    for (const t of terms) {
+      let i = low.indexOf(t);
+      if (i < 0) continue;
+      matched++;
+      if (pos < 0) pos = i;
+      let n = 0;
+      while (i >= 0 && n < 5) {
+        n++;
+        i = low.indexOf(t, i + t.length);
+      }
+      score += n;
+    }
+    if (matched === 0) continue;
+    // every term present outranks many hits on one
+    score += matched === terms.length ? 5 * terms.length : 0;
+    scored.push({ r, score, pos });
+  }
+  if (scored.length === 0) return `Nothing earlier in this session matches "${query}".`;
+  scored.sort((a, b) => b.score - a.score || b.r.at - a.r.at);
+  const out: string[] = [];
+  let used = 0;
+  for (const { r, pos } of scored.slice(0, Math.max(1, limit))) {
+    const a = Math.max(0, pos - 240);
+    const b = Math.min(r.text.length, pos + 420);
+    const snippet = (a > 0 ? '…' : '') + r.text.slice(a, b).replace(/\s+/g, ' ').trim() + (b < r.text.length ? '…' : '');
+    const head = r.kind === 'tool' ? `[${r.label} output · ${time(r.at)}]` : `[${r.label} message replaced by a compaction · ${time(r.at)}]`;
+    const entry = `${head} ${snippet}`;
+    if (used + entry.length > maxChars && out.length > 0) break;
+    out.push(entry);
+    used += entry.length + 2;
+  }
+  const more = scored.length - out.length;
+  return (
+    `From earlier in this session (verbatim; newer instructions win, and do not redo completed actions):\n\n` +
+    out.join('\n\n') +
+    (more > 0 ? `\n\n(${more} more match(es); narrow the query to see others.)` : '')
+  );
+}
+
+export const RECALL_DESCRIPTION =
+  'Search everything earlier in this session, verbatim: messages a context compaction replaced with a summary, ' +
+  'and the full output of every tool call (including results Claude Code later cleared). Use it when you need an ' +
+  'exact detail you no longer see: a value, path, command, error message, commit, or what someone said. ' +
+  'Query with the distinctive words or strings you remember.';

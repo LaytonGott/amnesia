@@ -104,6 +104,27 @@ How it picks what to add:
 It never changes the summary, and on any failure Claude Code's own result
 stands. Design and measurements: [docs/DESIGN-compact-hook.md](docs/DESIGN-compact-hook.md).
 
+### The recall tool
+
+The block is capped. Recall is not:
+- **What it keeps:** the plugin archives every tool output as it happens,
+  and every message a compaction replaces.
+- **What the agent gets:** a tool, `mcp__amnesia__recall`, that searches all
+  of it word for word. That includes tool results Claude Code later cleared
+  for good, which no transcript keeps.
+- **Measured:** with a summary that kept nothing and a tiny block, the agent
+  answered 0 of 20 exact-detail questions without recall and 20 of 20 with
+  it ([docs/EFFICACY.md](docs/EFFICACY.md)).
+
+Where it lives, and how to control it:
+- **Location:** archives go to `~/.claude/amnesia/archive/<session id>/`
+  (`AMNESIA_HOME` overrides it), beside Claude Code's own transcripts.
+- **Secrets:** private keys, common token formats and `password=`/`token:`
+  values are redacted before anything is written.
+- **Turning it off:** set the plugin's `recall` option to `false` to stop
+  archiving.
+- **Forked sessions:** a forked session starts its own, empty archive.
+
 ## The receipt
 
 ```

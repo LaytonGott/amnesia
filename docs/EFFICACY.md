@@ -237,6 +237,39 @@ What this establishes:
 Spend across all A/B runs: about $11.80 (smoke $1.75, first 100-fact batch
 $3.54, v7 batch $3.11, v8 stress batch $3.41).
 
+### The recall tool (plugin 0.8.0), live
+
+What the tool does:
+- It archives every tool output as it happens, and every message a
+  compaction replaces, with secrets redacted.
+- It registers `mcp__amnesia__recall` so the agent can search that archive,
+  verbatim.
+- The block stops being the only way back, and the 6,000-char budget stops
+  being the ceiling.
+
+`node bench/run-recall.mjs` runs one session per arm. Each is forked from
+the seeded 100-fact session and compacted with the brevity instruction
+above, so the summary kept 0 of the 20 probed facts. The block budget is cut
+to 1,000 chars, and recall is the agent's only tool.
+
+| arm | recall | correct (of 20) | recall calls |
+|---|---|---|---|
+| B | off | **0** | — |
+| R | on | **20** | one per question |
+
+Notes:
+- **One configuration pitfall, now fixed in the script.** `--tools ""`
+  removes plugin tools too: the first arm-R probe ran without the tool and
+  scored 2 of 20.
+- **Registration is fast:** the tool registers at session start and was
+  visible after 50 ms.
+- **Recall also works in an interactive session.** In the session that built
+  it, the tool returned that session's own tool output from minutes earlier.
+- **Known gap: the archive is kept per session id.** A `--fork-session` (or
+  any new session id) starts an empty archive and cannot search its
+  parent's.
+- **Spend:** about $1.67.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
