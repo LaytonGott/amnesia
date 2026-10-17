@@ -46,7 +46,56 @@ agent still answer or comply with:
 - Public artifacts for any write-up: scenario, scorer, raw per-run JSON,
   summary table. Publish the protocol, not just the win.
 
-## Known limits of this bench
+## Real-data audit (measured on 190 real sessions, $0)
+
+No model calls: for every real compaction boundary, take the exact dropped
+prompt set (the agent-verified reconstruction) and measure what of it appears
+in the `isCompactSummary` text that replaced it. Run with
+`node bench/audit-real.mjs`.
+
+Results — 81 boundaries, 28 sessions, 3,020 dropped prompts, 4.8 MB of prompt
+text:
+
+| class | examined | survived in summary | rate |
+|---|---|---|---|
+| exact technical strings (paths, IDs, versions, dotted names) | 40,124 | 11,694 | **29.1%** |
+| explicit constraints (>=50% of content words present) | 8,257 | 6,845 | **82.9%** |
+
+What this says:
+
+- The summarizer preserves instructions well at this scale — "it forgets your
+  rules" is mostly wrong as the headline. Short-session benchmarks agree.
+- Exact specifics die: ~71% of unparaphrasable tokens (paths, field names,
+  versions, IDs) never reach the summary. Worst real boundaries retained
+  1.6–5.5%. Example lost strings from one session: `dataset-identity`,
+  `arm.config`, `config.temperature`, `runtime/config`,
+  `provider/model/toolsets`.
+- ~1,412 constraints across the history were materially absent — even rules
+  erode at extreme compression ratios (998k -> 31k).
+
+Interpretation limits: string absence is a floor (summaries can paraphrase
+prose but not paths); presence is not proof of fidelity; this measures text
+survival, not behavior.
+
+## Raising rule retention toward 100%
+
+The 82.9% is the summarizer's baseline, with no amnesia involved. The layers
+stack on top:
+
+- **Per-compaction injection** restores the most recent dropped prompts
+  verbatim on the next message — the rules stop depending on the summary at
+  all. Budget: ~1.5k tokens of the most recent lost messages.
+- **`protect --write`** pins chosen rules into CLAUDE.md, which the platform
+  re-injects at full fidelity every session — 100% durable, entirely outside
+  the compaction system, for anything pinned.
+- **The PreCompact snapshot** is the durable source of everything beyond the
+  injection budget.
+
+Honest gap: a rule dropped and injected in one round can fall off in later
+rounds — each injection covers its own round. Invariants you cannot afford to
+lose belong in CLAUDE.md (protect), which compaction cannot touch.
+
+
 
 - Short sessions maximize summary retention; long-session behavior is
   extrapolated, not measured, in v1.

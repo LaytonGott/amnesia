@@ -43,6 +43,7 @@ function contentWords(s) {
 
 const sessions = [];
 const lostExamples = [];
+const lostStrings = [];
 let totals = {
   sessions: 0,
   boundaries: 0,
@@ -89,6 +90,13 @@ for (const f of files) {
         if (summary.includes(id)) {
           row.idsHeld++;
           totals.idsHeld++;
+        } else if (lostStrings.length < 60 && id.length >= 7) {
+          lostStrings.push({
+            session: f.session.slice(0, 8),
+            ts: b.timestamp,
+            atom: id,
+            was: p.text.replace(/\s+/g, " ").slice(0, 90),
+          });
         }
       }
       for (const c of extractConstraints([p])) {
@@ -151,6 +159,12 @@ for (const s of sessions.slice(0, 25)) {
   }
 }
 out.push("");
+out.push("## Example lost technical strings (exact tokens absent from the replacement summary)");
+out.push("");
+for (const e of lostStrings.slice(0, 15)) {
+  out.push(`- \`${e.atom}\` — from [${e.session} · ${String(e.ts || "").slice(0, 10)}] "${e.was}"`);
+}
+out.push("");
 out.push("## Example lost constraints (not materially present in the replacement summary)");
 out.push("");
 for (const e of lostExamples.slice(0, 15)) {
@@ -170,6 +184,6 @@ const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const resDir = join(HERE, "results", `real-audit-${stamp}`);
 mkdirSync(resDir, { recursive: true });
 writeFileSync(join(resDir, "audit.md"), out.join("\n"));
-writeFileSync(join(resDir, "audit.json"), JSON.stringify({ totals, sessions, lostExamples }, null, 2));
+writeFileSync(join(resDir, "audit.json"), JSON.stringify({ totals, sessions, lostExamples, lostStrings }, null, 2));
 console.log(out.join("\n"));
 console.log(`\nresults: ${resDir}`);
