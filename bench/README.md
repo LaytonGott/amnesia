@@ -8,6 +8,10 @@ compaction when amnesia is active?**
 - `run-bench.mjs` — runs the full protocol per (arm, run) using headless
   Claude Code: seed → filler → `/compact` → 12 probes, all with
   `--output-format json` for cost capture.
+- `run-unasked.mjs` — after a lossy compaction of the `run-ab.mjs --facts 100`
+  session, gives ordinary tasks that never ask for anything to be recalled,
+  with and without the plugin, and scores the files the agent writes.
+  `--report` prints the tables in docs/EFFICACY.md.
 - `results/` — per-run records + `summary.md` (gitignored).
 
 ## Arms
