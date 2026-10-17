@@ -54,6 +54,21 @@ function parseHookCommand(hook) {
   return { nodePath: t[0], binPath: t[1], cmd: t[3], form: "shell" };
 }
 
+export const PLUGIN_INSTALL = "/plugin install amnesia --marketplace LaytonGott/amnesia";
+
+// Claude Code lists installed plugins in <config>/plugins/installed_plugins.json
+// (keys "name@marketplace") and turns them on in settings.enabledPlugins
+export function pluginState(settingsFile, settings) {
+  let ids = [];
+  try {
+    const raw = readFileSync(join(dirname(settingsFile), "plugins", "installed_plugins.json"), "utf8");
+    const j = JSON.parse(raw);
+    ids = Object.keys(j.plugins ?? j).filter((k) => k.split("@")[0] === "amnesia");
+  } catch {}
+  const enabled = ids.filter((id) => settings?.enabledPlugins?.[id] === true);
+  return { installed: ids, enabled, active: enabled.length > 0 };
+}
+
 export function runDoctor({ settingsPath } = {}) {
   const settingsFile = settingsPath;
   const checks = [];
@@ -71,6 +86,15 @@ export function runDoctor({ settingsPath } = {}) {
     } catch (e) {
       add("settings", "fail", `cannot parse ${settingsFile}: ${e.message}`);
     }
+  }
+
+  const plugin = pluginState(settingsFile, settings);
+  if (plugin.active) {
+    add("plugin", "ok", `${plugin.enabled.join(", ")} installed and enabled`);
+  } else if (plugin.installed.length > 0) {
+    add("plugin", "warn", `${plugin.installed.join(", ")} installed but not enabled — enable it in /plugin`);
+  } else {
+    add("plugin", "info", `not installed — recommended:  ${PLUGIN_INSTALL}`);
   }
 
   const commandsByEvent = [];
@@ -93,7 +117,16 @@ export function runDoctor({ settingsPath } = {}) {
         missing.push(event);
       }
     }
-    if (missing.length === 0) {
+    const found = HOOK_EVENTS.length - missing.length;
+    if (plugin.active && found === 0) {
+      add("hooks", "info", "not installed (not needed: the plugin is active)");
+    } else if (plugin.active) {
+      add(
+        "hooks",
+        "warn",
+        "command hooks are installed too: they re-inject recent prompts the plugin already covers \u2014 run  amnesia uninstall"
+      );
+    } else if (missing.length === 0) {
       add(
         "hooks",
         "ok",
@@ -239,9 +272,14 @@ export function runDoctor({ settingsPath } = {}) {
   out.push("");
   if (fails > 0) {
     out.push(
-      style.red(`  ${fails} problem(s) found \u2014 hooks are NOT fully active.`)
+      style.red(`  ${fails} problem(s) found \u2014 amnesia is NOT active on this machine.`)
     );
-    out.push(style.dim("  fix: run  amnesia install"));
+    out.push(style.dim(`  fix: in Claude Code run  ${PLUGIN_INSTALL}`));
+    out.push(style.dim("       (or, for older Claude Code:  amnesia install)"));
+  } else if (plugin.active && warns === 0) {
+    out.push(
+      style.green("  plugin active \u2014 each compaction keeps the exact details its summary drops.")
+    );
   } else if (warns > 0) {
     out.push(
       style.yellow(`  ${warns} warning(s) \u2014 hooks are active; check the notes above.`)

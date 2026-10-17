@@ -1,0 +1,12 @@
+{
+  "name": "amnesia",
+  "owner": { "name": "LaytonGott", "url": "https://github.com/LaytonGott" },
+  "description": "amnesia: see what your coding agent forgot at each compaction, and keep the exact details its summary drops.",
+  "plugins": [
+    {
+      "name": "amnesia",
+      "source": "./plugin",
+      "description": "Keeps the exact details a compaction summary drops: appends paths, IDs, versions and settings right after the summary."
+    }
+  ]
+}

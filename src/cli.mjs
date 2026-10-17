@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
   listSessionFiles,
@@ -28,7 +28,7 @@ import {
   CODEX_ROOT,
 } from "./codex.mjs";
 import { writeCard, cardOutputPath } from "./card.mjs";
-import { runDoctor } from "./doctor.mjs";
+import { PLUGIN_INSTALL, pluginState, runDoctor } from "./doctor.mjs";
 
 function printHelp() {
   console.log(`
@@ -46,14 +46,16 @@ function printHelp() {
     amnesia codex [<session>]   Codex CLI sessions: scan + compaction receipts
     amnesia card [<session>] [--out <file.html>]
                                 shareable receipt card (open, screenshot, post)
-    amnesia install [--settings <file>] [--dry-run]
-                                wire Claude Code hooks: snapshot before every
-                                compaction, announce it after
+    amnesia install [--settings <file>] [--dry-run] [--hooks]
+                                fallback for Claude Code without plugins: hooks that
+                                snapshot before each compaction and re-inject recent
+                                prompts after (recommended instead, inside Claude Code:
+                                /plugin install amnesia --marketplace LaytonGott/amnesia)
     amnesia uninstall [--settings <file>]
                                 remove the amnesia hooks
     amnesia home                show where amnesia keeps its files
     amnesia doctor [--settings <file>]
-                                check hooks are installed and working
+                                check the plugin or the hooks are installed and working
     amnesia --json [<session>]  machine-readable output
     amnesia --root <dir>        use a different projects root
     amnesia --version | --help
@@ -159,11 +161,13 @@ export async function main(argv) {
   let projectArg = null;
   let settingsPath = null;
   let rootExplicit = false;
+  let forceHooks = false;
   const pos = [];
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--json") json = true;
+    else if (a === "--hooks") forceHooks = true;
     else if (a === "--all") all = true;
     else if (a === "--write") write = true;
     else if (a === "--dry-run") dryRun = true;
@@ -209,6 +213,20 @@ export async function main(argv) {
   }
 
   if (cmd === "install") {
+    const sPath = settingsPath || defaultSettingsPath();
+    let current = {};
+    try {
+      current = JSON.parse(readFileSync(sPath, "utf8").replace(/^﻿/, "") || "{}");
+    } catch {}
+    const plugin = pluginState(sPath, current);
+    if (plugin.active && !forceHooks) {
+      console.log("");
+      console.log(style.bold("  amnesia") + style.dim(" · install"));
+      console.log(style.green(`  the plugin is active (${plugin.enabled.join(", ")}) — command hooks are not needed.`));
+      console.log(style.dim("  install them anyway with  amnesia install --hooks"));
+      console.log("");
+      return;
+    }
     let r;
     try {
       r = installHooks({
@@ -237,6 +255,13 @@ export async function main(argv) {
             "  installed \u2014 every compaction will now be snapshotted and announced."
           )
     );
+    if (!plugin.active) {
+      console.log("");
+      console.log(style.dim("  recommended instead, on Claude Code 2.1.299 or later: the plugin, which keeps the"));
+      console.log(style.dim("  exact details each summary drops right in the compacted context:"));
+      console.log(`    ${PLUGIN_INSTALL}`);
+      console.log(style.dim("  then remove these hooks with  amnesia uninstall"));
+    }
     console.log("");
     return;
   }
