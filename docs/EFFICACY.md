@@ -95,7 +95,7 @@ Honest gap: a rule dropped and injected in one round can fall off in later
 rounds — each injection covers its own round. Invariants you cannot afford to
 lose belong in CLAUDE.md (protect), which compaction cannot touch.
 
-
+## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
   extrapolated, not measured, in v1.
