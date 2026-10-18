@@ -61,14 +61,20 @@ function memoryFs(on: On) {
   });
   on('fs.list', (_$, e) => {
     const p = norm(e.path);
+    const under = [...files.keys()].filter((k) => k.startsWith(p + '/'));
+    const dirs = [...new Set(under.map((k) => k.slice(p.length + 1)).filter((r) => r.includes('/')).map((r) => r.split('/')[0]!))];
     return {
-      value: [...files.keys()]
-        .filter((k) => k.startsWith(p + '/') && !k.slice(p.length + 1).includes('/'))
-        .map((k) => ({ name: k.slice(p.length + 1), kind: 'file' as const, size: files.get(k)!.length, mtimeMs: 0, isLink: false })),
+      value: [
+        ...under
+          .filter((k) => !k.slice(p.length + 1).includes('/'))
+          .map((k) => ({ name: k.slice(p.length + 1), kind: 'file' as const, size: files.get(k)!.length, mtimeMs: 0, isLink: false })),
+        ...dirs.map((name) => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })),
+      ],
     };
   });
   mock.env(on, { AMNESIA_HOME: '/mem/amnesia' });
   on('session.id', () => ({ value: 'test-session' }));
+  on('session.cwd', () => ({ value: '/proj' }));
   return files;
 }
 
@@ -262,4 +268,44 @@ test('tool calls archived with a message are not matched, only what it said', ()
     ...Array.from({ length: 11 }, (_, i) => dropped(`For svc-${i}, the staging port is ${30000 + i}.`)),
   ];
   expect(promptRecall(archive, 'Add a staging deploy step for acme-billing.')).toBe(null);
+});
+
+// ---- the project's other sessions ----
+
+const said = (label: 'user' | 'assistant', text: string, at = Date.UTC(2026, 9, 17, 4, 49)) => JSON.stringify({ kind: 'said', at, label, text });
+
+test('what the person sends is logged for other sessions, and plain recall leaves it out', async ($, on) => {
+  const files = memoryFs(on);
+  on('tool.call', () => ({ deny: 'no tools here' }));
+  on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }));
+  await $.prompt.submit({ text: 'Pin the hotfix to commit 7f3c2a91e.' } as never);
+  const logged = [...files.keys()].filter((k) => /\/archive\/test-session\/p-.*\.json$/.test(k));
+  expect(logged.length).toBe(1);
+  expect(files.get(logged[0]!)).toContain('7f3c2a91e');
+  const own = String(((await $.tool.call({ tool: 'mcp__amnesia__recall', query: '7f3c2a91e' } as never)) as { result?: unknown }).result);
+  expect(own.includes('Pin the hotfix')).toBe(false);
+});
+
+test("project scope searches this project's other sessions, not other projects'", async ($, on) => {
+  const files = memoryFs(on);
+  on('tool.call', () => ({ deny: 'no tools here' }));
+  files.set('/mem/amnesia/archive/other-a/meta.json', JSON.stringify({ cwd: '/proj', at: 1 }));
+  files.set('/mem/amnesia/archive/other-a/p-1-a.json', said('assistant', 'BOM: PowerShell wrote normalized.json as UTF-8-with-BOM, so load_signal strips it on read.'));
+  files.set('/mem/amnesia/archive/other-b/meta.json', JSON.stringify({ cwd: '/elsewhere', at: 1 }));
+  files.set('/mem/amnesia/archive/other-b/p-1-b.json', said('user', 'load_signal in another project entirely'));
+  const out = String(((await $.tool.call({ tool: 'mcp__amnesia__recall', query: 'load_signal BOM', scope: 'project' } as never)) as { result?: unknown }).result);
+  expect(out).toContain('From other sessions of this project');
+  expect(out).toContain('in session other-a');
+  expect(out).toContain('strips it on read');
+  expect(out).toContain('2026-10-17');
+  expect(out.includes('another project entirely')).toBe(false);
+  const plain = String(((await $.tool.call({ tool: 'mcp__amnesia__recall', query: 'load_signal' } as never)) as { result?: unknown }).result);
+  expect(plain.includes('strips it on read')).toBe(false);
+});
+
+test('project scope with no other logged sessions says so', async ($, on) => {
+  memoryFs(on);
+  on('tool.call', () => ({ deny: 'no tools here' }));
+  const out = String(((await $.tool.call({ tool: 'mcp__amnesia__recall', query: 'anything', scope: 'project' } as never)) as { result?: unknown }).result);
+  expect(out).toContain('No other session of this project has kept a log yet');
 });
