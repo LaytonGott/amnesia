@@ -72,6 +72,19 @@ const FILE_KEY = /\.[A-Za-z]{1,6}$/;
 const ESCAPE = /^\\(?:u\{?[0-9A-Fa-f]{2,6}\}?|x[0-9A-Fa-f]{2}|[nrtbfv0])$/;
 
 const PATTERNS: Pattern[] = [
+  // "Set `retry_timeout_ms` to 7350", "bump `api_version` to `2025-01`": a change the person or the agent made
+  {
+    kind: 'setting',
+    own: true,
+    re: /\b(?:set|change|changed|bump|bumped|raise|raised|lower|lowered|update|updated|pin|pinned)\s+`([A-Za-z_][\w.-]{2,80})`\s+to\s+(?:`([^`\n]{1,80})`|([^\s,;()`]{1,80}))/gi,
+    item: (m) => {
+      const k = m[1];
+      const v = m[2] !== undefined ? m[2].trim() : clean(m[3] ?? '');
+      if (!k || !v || !keyOk(k) || !valueOk(v)) return null;
+      if (m[2] === undefined && !/\d|[._/:@-]/.test(v)) return null;
+      return { s: `${k} = ${v}`, probe: [k, v] };
+    },
+  },
   // `key` is `value` (or a bare value with a digit or symbol: `key` is 7350)
   // in what someone wrote: the value keeps its key
   {

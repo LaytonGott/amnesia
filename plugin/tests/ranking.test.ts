@@ -234,3 +234,9 @@ test('a setting the person stated outranks a file path the agent mentioned', () 
   const r = specificsBlock([user('`retry_timeout_ms` is 7350.'), asst('I also looked at src/runtime/loader.ts.')], '', TIGHT);
   expect(items(r?.text)[0]).toBe('retry_timeout_ms = 7350');
 });
+
+test('"set `key` to value" is a setting', () => {
+  const got = items(specificsBlock([user('Set `retry_timeout_ms` to 7350 and bump `api_version` to `2025-01`.')], '', 6000)?.text);
+  expect(got).toContain('retry_timeout_ms = 7350');
+  expect(got).toContain('api_version = 2025-01');
+});
