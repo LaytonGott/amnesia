@@ -21,6 +21,12 @@
       "description": "Archive every tool output and what each compaction drops (under <config>/amnesia/archive/<session>/), and give the agent a recall tool to search them.",
       "default": true
     },
+    "autoRecall": {
+      "type": "boolean",
+      "title": "Attach lost messages to new prompts",
+      "description": "After a compaction, when a prompt you send shares rare words with messages the compaction replaced, attach a few of those messages verbatim beside it (the agent sees them, you don't). Needs the recall tool.",
+      "default": true
+    },
     "steer": {
       "type": "boolean",
       "title": "Ask the summary to keep exact details",

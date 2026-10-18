@@ -164,3 +164,86 @@ export const RECALL_DESCRIPTION =
   'and the full output of every tool call. Use it when you need an ' +
   'exact detail you no longer see: a value, path, command, error message, commit, or what someone said. ' +
   'Query with the distinctive words or strings you remember.';
+
+// ---- just-in-time recall: the lost messages a new prompt is about ---------
+
+export const JIT_LEAD =
+  '[amnesia] Possibly relevant to this request, verbatim from before a compaction (newer instructions win; ' +
+  'actions described here were already done):';
+
+const JIT_STOP = new Set(
+  ('this that with from your have will what when then they them there their about would could should ' +
+    'into over more most some such only also than here where which while before after just like need ' +
+    'make sure want know please keep short done youre dont thanks okay yeah sure can you the and for are ' +
+    'was were been being does did its it\'s not but all any').split(/\s+/),
+);
+
+// words and identifier-like tokens of a prompt, and the parts of compounds
+// (release/deploy-staging.sh -> release, deploy, staging)
+export function promptTerms(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.toLowerCase().matchAll(/[\p{L}\p{N}][\p{L}\p{N}._/@:-]*[\p{L}\p{N}]/gu)) {
+    const t = m[0];
+    const keep = (s: string) => (s.length >= 4 || (/\d/.test(s) && s.length >= 3)) && !JIT_STOP.has(s);
+    if (keep(t)) out.add(t);
+    for (const p of t.split(/[._/@:-]+/)) if (p !== t && keep(p)) out.add(p);
+  }
+  return [...out];
+}
+
+const recKey = (r: Rec) => `${r.at}\u0000${r.label}\u0000${r.text.slice(0, 80)}`;
+
+// the best window of a record: where the most distinct matched terms sit close together
+function windowOf(text: string, terms: readonly string[], width: number): string {
+  const low = text.toLowerCase();
+  const hits: { at: number; t: string }[] = [];
+  for (const t of terms) for (let i = low.indexOf(t); i >= 0 && hits.length < 400; i = low.indexOf(t, i + t.length)) hits.push({ at: i, t });
+  hits.sort((a, b) => a.at - b.at);
+  let best = 0;
+  let bestCount = 0;
+  for (let i = 0; i < hits.length; i++) {
+    const seen = new Set<string>();
+    for (let j = i; j < hits.length && hits[j]!.at - hits[i]!.at < width; j++) seen.add(hits[j]!.t);
+    if (seen.size > bestCount) {
+      bestCount = seen.size;
+      best = hits[i]!.at;
+    }
+  }
+  const a = Math.max(0, best - Math.floor(width / 5));
+  const b = Math.min(text.length, a + width);
+  return (a > 0 ? '…' : '') + text.slice(a, b).replace(/\s+/g, ' ').trim() + (b < text.length ? '…' : '');
+}
+
+// The records (messages a compaction replaced) a prompt shares rare words with.
+// Strict: at least two distinctive words in common, one of them rare across the
+// archive; words in many records say nothing about which one is meant.
+export function promptRecall(
+  records: readonly Rec[],
+  prompt: string,
+  { maxSnippets = 3, width = 700, skip = new Set<string>() }: { maxSnippets?: number; width?: number; skip?: ReadonlySet<string> } = {},
+): { text: string; keys: string[] } | null {
+  const pool = records.filter((r) => r.kind === 'dropped');
+  const n = pool.length;
+  if (n === 0) return null;
+  const lows = pool.map((r) => r.text.toLowerCase());
+  const terms = promptTerms(prompt)
+    .map((t) => ({ t, df: lows.filter((l) => l.includes(t)).length }))
+    .filter((x) => x.df > 0 && x.df <= Math.max(2, Math.floor(n * 0.15)));
+  if (terms.length < 2) return null;
+  const rare = Math.max(1, Math.floor(n * 0.05));
+  const idf = new Map(terms.map((x) => [x.t, Math.log((n + 1) / (x.df + 0.5))]));
+  const scored = pool
+    .map((r, i) => {
+      const matched = terms.filter((x) => lows[i]!.includes(x.t));
+      return { r, matched, score: matched.reduce((s, x) => s + (idf.get(x.t) ?? 0), 0) };
+    })
+    .filter((x) => x.matched.length >= 2 && x.matched.some((m) => m.df <= rare) && !skip.has(recKey(x.r)))
+    .sort((a, b) => b.score - a.score || b.r.at - a.r.at)
+    .slice(0, maxSnippets);
+  if (scored.length === 0) return null;
+  const entries = scored.map(({ r, matched }) => {
+    const place = r.seq && r.of ? ` (${r.seq} of ${r.of})` : '';
+    return `[${r.label} message${place}, replaced by the compaction at ${time(r.at)}] ${windowOf(r.text, matched.map((m) => m.t), width)}`;
+  });
+  return { text: [JIT_LEAD, ...entries].join('\n\n'), keys: scored.map((x) => recKey(x.r)) };
+}

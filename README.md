@@ -144,6 +144,11 @@ The block is capped. Recall is not:
 - **Measured:** with a summary that kept nothing and a tiny block, the agent
   answered 0 of 20 exact-detail questions without recall and 20 of 20 with
   it ([docs/EFFICACY.md](docs/EFFICACY.md)).
+- **It also comes to the agent unasked.** After a compaction, a prompt that
+  names something from before ("deploy acme-billing and kestrel-audit")
+  carries the replaced messages about it, verbatim and out of your sight.
+  That took a deploy script from 0 of 12 stated values to 11 of 12, with a
+  block too small to hold them. The `autoRecall` setting turns it off.
 
 Where it lives, and how to control it:
 - **Location:** archives go to `~/.claude/amnesia/archive/<session id>/`
