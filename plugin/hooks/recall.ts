@@ -4,8 +4,12 @@
 // the I/O through $.fs.
 
 export type Rec = {
-  // 'tool': one tool output as it happened; 'dropped': a message a compaction replaced
-  kind: 'tool' | 'dropped';
+  // 'tool': one tool output as it happened; 'dropped': a message a compaction
+  // replaced; 'said': a prompt the person sent or an answer the agent gave, as it
+  // happened (kept for other sessions of the project to search)
+  kind: 'tool' | 'dropped' | 'said';
+  // the session a record came from, when it is another session's
+  session?: string;
   // a tool output: when it ran. A dropped message: when the compaction replaced
   // it (a hook is not told when a message was written)
   at: number;
@@ -93,16 +97,23 @@ const time = (at: number) => {
   const d = new Date(at);
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
 };
+// another session's record may be days old: say the date too
+const when = (at: number) => `${new Date(at).toISOString().slice(0, 10)} ${time(at)}`;
+
+export function saidRecord(role: 'user' | 'assistant', text: string, at: number): Rec {
+  return { kind: 'said', at, label: role, text: redact(cap(text, MAX_RECORD_CHARS)) };
+}
 
 // terms of a query: words, and identifier-like tokens kept whole (src/a.ts, OPS-77412, v1.2.3)
 export function termsOf(query: string): string[] {
   return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}._/:@#=-]+/u).filter((t) => t.length >= 2))];
 }
 
-export function search(records: readonly Rec[], query: string, limit = 6, maxChars = 8000): string {
+export function search(records: readonly Rec[], query: string, limit = 6, maxChars = 8000, { project = false }: { project?: boolean } = {}): string {
   const terms = termsOf(query);
   const phrase = query.toLowerCase().trim();
   if (terms.length === 0) return 'Give recall a query: a name, value, path, error or topic to look for.';
+  const where = project ? "this project's sessions" : 'this session';
   const scored: { r: Rec; score: number; pos: number }[] = [];
   for (const r of records) {
     const low = r.text.toLowerCase();
@@ -133,7 +144,7 @@ export function search(records: readonly Rec[], query: string, limit = 6, maxCha
     score += matched === terms.length ? 5 * terms.length : 0;
     scored.push({ r, score, pos });
   }
-  if (scored.length === 0) return `Nothing earlier in this session matches "${query}".`;
+  if (scored.length === 0) return `Nothing earlier in ${where} matches "${query}".`;
   scored.sort((a, b) => b.score - a.score || b.r.at - a.r.at);
   const out: string[] = [];
   let used = 0;
@@ -142,10 +153,13 @@ export function search(records: readonly Rec[], query: string, limit = 6, maxCha
     const b = Math.min(r.text.length, pos + 420);
     const snippet = (a > 0 ? '…' : '') + r.text.slice(a, b).replace(/\s+/g, ' ').trim() + (b < r.text.length ? '…' : '');
     const place = r.seq && r.of ? ` (${r.seq} of ${r.of})` : '';
+    const from = r.session ? ` in session ${r.session.slice(0, 8)}` : '';
     const head =
       r.kind === 'tool'
-        ? `[${r.label} output · ${time(r.at)}]`
-        : `[${r.label} message${place}, replaced by the compaction at ${time(r.at)}]`;
+        ? `[${r.label} output${from} · ${r.session ? when(r.at) : time(r.at)}]`
+        : r.kind === 'said'
+          ? `[${r.label}${from} · ${when(r.at)}]`
+          : `[${r.label} message${place}${from}, replaced by the compaction at ${r.session ? when(r.at) : time(r.at)}]`;
     const entry = `${head} ${snippet}`;
     if (used + entry.length > maxChars && out.length > 0) break;
     out.push(entry);
@@ -153,7 +167,9 @@ export function search(records: readonly Rec[], query: string, limit = 6, maxCha
   }
   const more = scored.length - out.length;
   return (
-    `From earlier in this session (verbatim; newer instructions win, and do not redo completed actions):\n\n` +
+    (project
+      ? `From other sessions of this project (verbatim; they may be out of date, this session's instructions win, and do not redo completed actions):\n\n`
+      : `From earlier in this session (verbatim; newer instructions win, and do not redo completed actions):\n\n`) +
     out.join('\n\n') +
     (more > 0 ? `\n\n(${more} more match(es); narrow the query to see others.)` : '')
   );
@@ -163,7 +179,8 @@ export const RECALL_DESCRIPTION =
   'Search everything earlier in this session, verbatim: messages a context compaction replaced with a summary, ' +
   'and the full output of every tool call. Use it when you need an ' +
   'exact detail you no longer see: a value, path, command, error message, commit, or what someone said. ' +
-  'Query with the distinctive words or strings you remember.';
+  'Query with the distinctive words or strings you remember. Set scope to "project" to search what was said in ' +
+  "this project's other sessions instead (decisions, fixes, values from earlier work elsewhere).";
 
 // ---- just-in-time recall: the lost messages a new prompt is about ---------
 
