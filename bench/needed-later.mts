@@ -4,7 +4,7 @@
 // call's input; not tool output, since re-reading a file is not memory)? Scores
 // what share of those each extractor module's block carried.
 //
-//   node bench/needed-later.mts plugin/hooks/specifics.ts [other-module.ts ...]
+//   BUDGET=12000 STRICT=3 node bench/needed-later.mts plugin/hooks/specifics.ts [other-module.ts ...]
 import { eventsOf } from './events.mts';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -44,13 +44,22 @@ for (const d of readdirSync(root)) {
 console.log(`compactions with later work: ${cases.length}`);
 for (const m of mods) {
   const S = await import(pathToFileURL(resolve(m)).href);
+  // STRICT=3: a value found in 3+ different sessions is generic (a common flag
+  // or word); typing it again shows no memory, so it doesn't count as needed
+  const STRICT = Number(process.env.STRICT ?? 0);
+  const sessionsOf = new Map<string, Set<string>>();
+  if (STRICT) for (const c of cases) for (const h of S.collect(c.dropped).values() as any) {
+    const v = h.probe ? h.probe[h.probe.length - 1] : h.s;
+    const s = sessionsOf.get(v) ?? new Set<string>(); s.add(c.key.split('|')[0]!); sessionsOf.set(v, s);
+  }
+  const particular = (v: string) => !STRICT || (sessionsOf.get(v)?.size ?? 0) < STRICT;
   let needed = 0, carried = 0, items = 0, usefulItems = 0, chars = 0;
   for (const c of cases) {
     const hits = [...S.collect(c.dropped).values()];
     const missing = hits.filter((h: any) => !(h.probe ?? [h.s]).every((p: string) => c.present.includes(p)));
     // needed: its value shows up again in later work (the probe's last part is the value)
     const val = (h: any) => (h.probe ? h.probe[h.probe.length - 1] : h.s);
-    const need = missing.filter((h: any) => { const v = val(h); return v.length >= 4 && c.after.includes(v); });
+    const need = missing.filter((h: any) => { const v = val(h); return v.length >= 4 && c.after.includes(v) && particular(v); });
     const block = S.specificsBlock(c.dropped, c.present, Number(process.env.BUDGET ?? 6000), true, true);
     const bt = block?.text ?? '';
     needed += need.length;

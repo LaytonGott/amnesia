@@ -305,30 +305,31 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
   return hits;
 }
 
-// Learned from 70 real compactions (bench/needed-later.mts): log-odds, per
-// feature, that a dropped detail is used again afterwards, by the person or
-// the agent. Settings, things said often and said late come back; long
-// strings, paths, hashes and things only tools printed do not. The shape of a
-// name counts too (after Aider's repo map): short ALLCAPS names and short
-// plain words come back, long numbers and long paths do not.
+// Learned from 70 real compactions (bench/needed-later.mts, STRICT=3): log-odds,
+// per feature, that a dropped detail is used again afterwards, by the person
+// or the agent, and is particular to its session (found in fewer than 3
+// sessions, so a common flag reused shows no memory). Settings, handles,
+// things said often and said late come back; long strings, hashes, versions,
+// flags and things only tools printed do not. The shape of a name counts too
+// (after Aider's repo map): ALLCAPS names and short plain words come back.
 const LEARNED: Record<string, number> = {
-  'best:0': -0.49, 'best:1': -0.79, 'best:2': 0.37, 'best:3': 0.32, 'best:4': 0.61,
-  'cnt:0': -0.43, 'cnt:1': -0.21, 'cnt:2': 0.3, 'cnt:3': 1.25,
-  'kind:branch': -1.4, 'kind:code': -0.42, 'kind:dotted': 0.52, 'kind:env': -0.49,
-  'kind:file': -0.75, 'kind:flag': 0.47, 'kind:handle': -0.09, 'kind:hash': -1.99,
-  'kind:ident': -0.01, 'kind:path': -0.83, 'kind:quoted': -0.26, 'kind:setting': 1.28,
-  'kind:url': -1.25, 'kind:version': -1.02,
-  'len:0': 0.57, 'len:1': -0.2, 'len:2': -1.4,
-  'read:false': 0.06, 'read:true': -0.49,
-  'rec:0': -0.52, 'rec:1': -0.32, 'rec:2': -0.05, 'rec:3': 0.26, 'rec:4': 1.01,
-  'shape:camel+': 0.23, 'shape:camel-': 0.43, 'shape:dot+': -0.24, 'shape:dot-': 0.34,
-  'shape:kebab+': -0.1, 'shape:kebab-': 0.63, 'shape:num+': -0.92, 'shape:num-': 0.72,
-  'shape:path+': -0.82, 'shape:path-': 0.42, 'shape:plain+': 0.29, 'shape:plain-': 1.87,
-  'shape:snake+': -0.22, 'shape:snake-': -0.03, 'shape:upper+': 0.53, 'shape:upper-': 2.28,
+  'best:0': -0.5, 'best:1': -0.98, 'best:2': 0.35, 'best:3': 0.51, 'best:4': 0.74,
+  'cnt:0': -0.37, 'cnt:1': -0.11, 'cnt:2': 0.32, 'cnt:3': 0.9,
+  'kind:branch': -0.81, 'kind:code': -0.58, 'kind:dotted': 0.47, 'kind:env': -0.07,
+  'kind:file': -0.82, 'kind:flag': -0.69, 'kind:handle': 0.64, 'kind:hash': -1.3, 'kind:ident': -0.1,
+  'kind:path': -0.44, 'kind:quoted': 0.24, 'kind:setting': 1.4, 'kind:url': -1.13,
+  'kind:version': -1.15,
+  'len:0': 0.24, 'len:1': 0.01, 'len:2': -0.83,
+  'read:false': 0.06, 'read:true': -0.5,
+  'rec:0': -0.52, 'rec:1': -0.28, 'rec:2': 0.04, 'rec:3': 0.23, 'rec:4': 0.83,
+  'shape:camel+': 0.19, 'shape:camel-': 0.01, 'shape:dot+': -0.06, 'shape:dot-': 0.33,
+  'shape:kebab+': -0.44, 'shape:kebab-': -0.4, 'shape:num+': -0.19, 'shape:num-': -0.32,
+  'shape:path+': -0.4, 'shape:path-': 0.41, 'shape:plain+': 0.35, 'shape:plain-': 1.03,
+  'shape:snake+': -0.01, 'shape:snake-': -0.33, 'shape:upper+': 1.08, 'shape:upper-': 2.06,
 };
 // what the person wrote themselves ranks a step higher: held out, that kept
-// more of what they later repeated than the old fit on that label alone
-// (65.7% vs 64.9%), while carrying 41.8% vs 36.2% of all later use
+// as much of what they later repeated as the old fit on that label alone
+// (61.0% vs 61.6%), while carrying 34.8% vs 31.3% of all such later use
 const OWN_WORDS = 1;
 // a name's shape: its casing style, and whether it runs to 8+ characters
 function casingOf(v: string): string {

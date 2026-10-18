@@ -197,7 +197,11 @@ test('settings that share an owner share one line', () => {
     6000,
   );
   const lines = (r?.text ?? '').split('\n').slice(1);
-  expect(lines).toContain('- For acme-billing: the staging port is 29860; the tracking ticket is OPS-96797');
+  // one line for the owner, both values on it, in whichever order they rank
+  const owner = lines.filter((l) => l.startsWith('- For acme-billing: '));
+  expect(owner.length).toBe(1);
+  expect(owner[0]).toContain('the staging port is 29860');
+  expect(owner[0]).toContain('the tracking ticket is OPS-96797');
   expect(r?.included).toBe(2);
 });
 

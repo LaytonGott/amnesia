@@ -35,6 +35,8 @@ test("the reranker's picks lead the block", async ($, on) => {
   if (r.skip !== undefined) throw new Error('skipped');
   expect(asked.length).toBe(1);
   expect(asked[0]).toContain('next, deploy svc-3-api');
+  // and the person's last two requests, which the summary replaced
+  expect(asked[0]).toContain("The person's latest requests:\nFor svc-38-api, the staging port is 20038.\nFor svc-39-api");
   const first = blockOf(r).split('\n').find((l) => l.startsWith('- '));
   expect(first).toContain('svc-3-api');
 });
