@@ -86,6 +86,24 @@ prompt variant exists for *partial* compacts ("summarize the recent portion
 only"). Custom `/compact` instructions are appended as an "Additional
 Instructions" section.
 
+### What has changed by 2.1.302 (read from the shipped bundle, 2026-10-17)
+
+- **The prompt varies.** The nine-section spec above is one of several
+  summary prompts Claude Code ships. The choice is made server-side and
+  varies between sessions. Some variants cap the summary at 2,000 words. One
+  tells the summarizer that detail it can fetch again needs only a pointer
+  (a path, a command, a name).
+- **No evidence one variant keeps more.** Of 139 summaries on the test
+  machine, 53 since August don't have the nine numbered sections. With
+  session size held equal (compactions of 300–1,500 messages), the two
+  groups kept similar shares of what the person typed: 33.3% vs 28.1%.
+- **Instructions are still appended verbatim** as `Additional Instructions:`
+  after whichever prompt is in use. That includes a `session.compact`
+  hook's `next({ ...e, instructions })`.
+- **An oversized transcript loses its start.** When the transcript is too
+  big for the summarizer, the oldest messages are left out. The summary
+  then says the earliest part was not covered.
+
 ## What the next context contains
 
 After compaction the model resumes with a continuation message. Its header
@@ -98,6 +116,31 @@ The continuation also conditionally includes: the path of the full transcript
 verbatim, a warning if REPL VM state was cleared, and a resume-directly
 instruction. The path pointer is why `amnesia restore` exists — the information
 is always one file-read away; amnesia makes that read unnecessary.
+
+Re-attached after the summary, per 2.1.302's restore code:
+- **Recent files:** up to 5 of the most recently read, re-read from disk,
+  at most 5,000 tokens each and 50,000 in all.
+- **Skills:** those loaded, at most 5,000 tokens each and 25,000 in all.
+- **The rest:** the plan, background agent and shell status, plus tool,
+  agent, MCP and environment deltas.
+
+These survive a `session.compact` hook that returns its own messages. In the
+bench transcripts the rows after the boundary are the same with and without
+amnesia (the 5 `compact_file_reference` attachments, then the deltas).
+
+**Precompute.** Claude Code writes the summary in the background, ahead of
+the threshold (the auto-compact threshold is the window minus 13,000
+tokens). When compaction fires, it swaps that summary in and keeps the
+messages since then verbatim, under a note that the summary was written
+without seeing them. A precomputed summary is thrown away on any of:
+`post_compact_cleanup`, `subagent_exit`, `boundary_uuid_missing`,
+`covered_messages_changed`, `kept_message_missing`, `unseen_reply`,
+`rows_unreadable`, `model_switch`, `hook_rewrite`, `would_not_fit`,
+`returned_early`. Idle compaction ("compacted after an hour idle, using a
+summary written while you were away") uses the same machinery. For a
+plugin that steers the summary, that means steering must happen on the
+`precompute` trigger too, or the summary that gets used was written
+unsteered.
 
 ## Micro-compact (the silent one)
 
@@ -113,6 +156,11 @@ Because the content is persisted before clearing, micro-compact is usually
 *recoverable* — that is what `amnesia recover` is for. In our test corpus this
 mechanism never fired (older sessions predate it or never idled long enough),
 so its on-disk footprint here comes from the shipped code, not observed data.
+
+Still unresolved in 2.1.302: the bundle slice read for the section above
+holds the placeholder constant and the code that detects it, but not the
+clearing trigger. No transcript on the test machine has a real
+`microcompact_boundary`, and every result there keeps its full output.
 
 ## The persisted-output format
 
