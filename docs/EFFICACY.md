@@ -621,6 +621,14 @@ compaction's later prompts against its rebuilt archive:
   of the summary and the kept messages, and up to 3 messages attached.
   62% of compactions got one holding a needed value. But the same
   characters given to the block carried 709 needed values, against 110.
+- **Ranking on which sources mentioned a detail** (the person, the agent,
+  tool input, tool output, file reads), on top of the current features:
+  - **Strict label:** held out, it carried 1–2 points more of what the
+    person repeated, with a protection bonus of 5.
+  - **Broad label:** across all data it carried 3 points less of what was
+    used again at all (32.9% vs 35.9% at 12k).
+
+  A trade, not a gain.
 
 **Kept, though neutral:** "set `key` to value" (also change, bump, raise,
 lower, update and pin) is now extracted as `key = value`. Real sessions
