@@ -1,4 +1,4 @@
-import { createReadStream, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, createReadStream, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import readline from "node:readline";
@@ -305,6 +305,8 @@ function loadScanCache() {
   if (scanCache) return scanCache;
   scanCache = { version: VERSION, entries: {} };
   try {
+    // the cache holds summary text from your sessions: owner-only, like the transcripts it mirrors
+    chmodSync(scanCachePath(), 0o600);
     const v = JSON.parse(readFileSync(scanCachePath(), "utf8"));
     if (v && v.version === VERSION && v.entries) scanCache = v;
   } catch {}
@@ -315,8 +317,11 @@ function loadScanCache() {
 export function saveScanCache() {
   if (!scanCache || !scanCacheDirty) return;
   try {
-    mkdirSync(dirname(scanCachePath()), { recursive: true });
-    writeFileSync(scanCachePath(), JSON.stringify(scanCache));
+    mkdirSync(dirname(scanCachePath()), { recursive: true, mode: 0o700 });
+    // written whole or not at all: a scan cut short never leaves half a cache
+    const tmp = `${scanCachePath()}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(scanCache), { mode: 0o600 });
+    renameSync(tmp, scanCachePath());
     scanCacheDirty = false;
   } catch {}
 }
