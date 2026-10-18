@@ -142,7 +142,7 @@ const PATTERNS: Pattern[] = [
   { kind: 'file', re: /\b[\w-]+\.(?:ts|tsx|js|mjs|cjs|py|rs|go|java|json|md|yml|yaml|toml|sql|sh|ps1|css|html|txt|lock|ini|env|jsonl)\b/g },
   // not a method call (out.push(x), $.ui.status?.()): that is code, read again from the file;
   // nor a field of a one- or two-letter variable (r.stderr, e.message, opts is kept)
-  { kind: 'dotted', re: /\b(?![A-Za-z_]\w?\.)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
+  { kind: 'dotted', re: /(?<![\w-])(?![A-Za-z_]\w?\.)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
   { kind: 'version', re: /\bv?\d+\.\d+\.\d+(?:[-+][\w.]+)?\b/g },
   // hex runs inside a UUID (8-4-4-4-12) are ids, not commits
   // nor a path segment (bundled-skills/2.1.299/1c0faf7d.../plugin-authoring)
