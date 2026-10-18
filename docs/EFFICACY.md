@@ -634,6 +634,47 @@ compaction's later prompts against its rebuilt archive:
 lower, update and pin) is now extracted as `key = value`. Real sessions
 rarely phrase settings that way, so it moved nothing.
 
+**Refit on a stricter label, with name shape (plugin, branch feat/xsession).**
+The first fit labeled a detail needed only when the person later said it
+again. Counting any later use instead (the person, the agent's text, its
+tool inputs) raised held-out coverage from 36.2% to 41.8%, but put common
+CLI flags (`--short`, `--oneline`) near the top of the block. Typing a common
+flag again shows no memory: about half the "used again" values turn up in 3
+or more different sessions. The ground truth now leaves those out
+(`STRICT=3 node bench/needed-later.mts`). The refit on that label adds:
+- **Name shape**, after Aider's repo map: the casing style (kebab, camel,
+  snake, ALLCAPS, path, dotted, digits, plain) and whether the name runs to
+  8 characters or more.
+- **Your own words** rank a step higher (+1).
+
+At 12k, held out on two halves of 70 real compactions for the strict label:
+
+| weights | strict label | any later use | what the person repeated |
+|---|---|---|---|
+| first fit (person-repeated label) | 31.3% | 36.2% | 61.6% |
+| **strict refit + shape + own words (shipped)** | **34.8%** | **39.9%** | **61.0%** |
+
+- **Without the own-words step:** 35.1% strict, but what the person repeated
+  fell to 57.5%.
+- **Rejected:** a feature for "mentioned in the last 10% of the dropped
+  span" lost 0.5 points.
+- **Rejected, per-project weights:** each compaction got the global counts
+  plus 1×, 3× or 10× those of its own project's earlier compactions (54 of
+  70 had some). Every mix scored 41.7%, against 41.8% with the global
+  weights alone. One set of weights generalizes.
+
+**The rerank, re-checked on the refit order, with your last requests.** In
+the top 100 slots of 70 compactions (7,000 slots, $0.30 a run):
+
+| order | used again |
+|---|---|
+| learned ranking alone | 38.9% |
+| Haiku rerank, end of summary and kept messages | 41.4% |
+| **Haiku rerank, plus your last two dropped requests (shipped)** | **43.0%** |
+
+The refit alone took the learned top 100 from 24.4% to 38.9%. The rerank
+adds 10% on top of that.
+
 **Two-stage ranking: a small model reranks the shortlist (plugin, branch feat/xsession).**
 The learned ranking scores each detail on its own; it cannot read what the
 work is about. So at each compaction the top 300 of its list, with the end of
@@ -646,8 +687,9 @@ learned order. On the same ground truth (69 real compactions):
 | learned ranking | 1,684 of 6,900 (24.4%) |
 | Haiku rerank of its top 300 | 2,069 of 6,900 (30.0%) |
 
-- **Gain:** 23% more of the block's picks are details used again. Every
-  batch of 10 compactions came out ahead.
+- **Gain:** on the first ranking, 23% more of the block's picks were details
+  used again, and every batch of 10 compactions came out ahead. On the refit
+  ranking, with your last requests added, the gain is 10% (above).
 - **Cost:** $0.28 for all 69, about $0.004 per compaction, and up to 30 s
   added to a compaction (it times out to the learned order).
 - **Failure:** any error, refusal or timeout keeps the learned order, so the
