@@ -416,6 +416,41 @@ release's own. Two arms, both with recall on:
 So the index is on by default whenever recall is on (`lossIndex`). Limits:
 the same as above, plus 3 runs per arm. Spend: $4.28.
 
+### Just-in-time recall: the lost message rides with the prompt (plugin 0.10.0)
+
+After a compaction the plugin matches each new prompt against the messages
+compactions replaced (the recall archive). The prompt has to share at least
+two distinctive words with a message, one of them rare across the archive.
+The best few messages are then attached verbatim as hidden prompt context
+(`prompt.submit`'s `context`): the agent reads them, the person doesn't see
+them. The same message isn't attached twice before the next compaction.
+
+Test: the seeded session, a lossy compaction, a 1,000-char block, the
+recall tool on. The task names two services and none of their values:
+"Write release/deploy-staging.sh that deploys acme-billing and kestrel-audit
+to staging". Scored on the 4 values stated for them earlier (acme-billing's
+staging port and ticket, kestrel-audit's bucket and commit). 3 runs per arm.
+
+| arm (1,000-char block) | stated values in the script | wrong | recall searches |
+|---|---|---|---|
+| block only | **0/12** | 0 | 0 |
+| block + just-in-time recall | **11/12** | 0 | 4 |
+
+- **Without it, the agent never looked.** The recall tool was there every
+  run and went unused. The scripts were generic.
+- **With it, the scripts used the stated values.** One run missed the
+  ticket. In two runs the attached message also led the agent to search
+  recall for more.
+- **It needs words to match on.** For the vaguer "Write
+  release/deploy-staging.sh for the ledger-holds release", only one replaced
+  message passes the threshold, offline. Each release detail sits in a
+  different message, and those messages share only common words with the
+  prompt ("deploy", "staging"). That would bring back the release commit
+  alone, so this one wasn't run live. The block and the loss index remain
+  the cover for prompts that name nothing specific.
+
+Spend: $4.29.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

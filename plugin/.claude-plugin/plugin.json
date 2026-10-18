@@ -1,6 +1,6 @@
 {
   "name": "amnesia",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Keeps what compaction drops: appends the exact details the summary lost, and gives the agent a recall tool over everything earlier in the session.",
   "author": {
     "name": "LaytonGott",
@@ -19,6 +19,12 @@
       "type": "boolean",
       "title": "Recall tool",
       "description": "Archive every tool output and what each compaction drops (under <config>/amnesia/archive/<session>/), and give the agent a recall tool to search them.",
+      "default": true
+    },
+    "autoRecall": {
+      "type": "boolean",
+      "title": "Attach lost messages to new prompts",
+      "description": "After a compaction, when a prompt you send shares rare words with messages the compaction replaced, attach a few of those messages verbatim beside it (the agent sees them, you don't). Needs the recall tool.",
       "default": true
     },
     "lossIndex": {

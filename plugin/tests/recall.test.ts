@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing';
 import type { On, SessionMessage } from 'claude-code';
-import { search, termsOf, toolRecord, droppedFiles, type Rec } from '../hooks/recall.ts';
+import { JIT_LEAD, promptRecall, promptTerms, search, termsOf, toolRecord, droppedFiles, type Rec } from '../hooks/recall.ts';
 
 const rec = (label: string, text: string, at: number, kind: Rec['kind'] = 'tool'): Rec => ({ kind, label, text, at });
 
@@ -159,4 +159,86 @@ test('a dropped message says where it sat and that its time is the compaction ti
   );
   const out = search(files.flat(), 'canary weight');
   expect(out).toContain('[user message (1 of 2), replaced by the compaction at 22:44 UTC]');
+});
+
+// ---- just-in-time recall ----
+
+const dropped = (text: string, at = 1): Rec => ({ kind: 'dropped', at, label: 'user', text });
+// a dozen messages that all mention staging and deploy; one each per service
+const ARCHIVE: Rec[] = [
+  dropped('We are preparing the ledger-holds release. For acme-billing, the staging port is 29860 and the ticket is OPS-96797. Deploy soon.'),
+  dropped('For kestrel-audit, the artifact bucket is s3://7103-artifacts-931/drop and the pinned commit is dfea153d2. Staging deploy next.'),
+  ...Array.from({ length: 10 }, (_, i) => dropped(`For svc-${i}, the staging port is ${30000 + i}. Deploy it to staging later.`)),
+];
+
+test('prompt terms keep compounds whole and add their parts', () => {
+  expect(promptTerms('Write release/deploy-staging.sh for acme-billing')).toEqual(
+    ['write', 'release/deploy-staging.sh', 'release', 'deploy', 'staging', 'acme-billing', 'acme', 'billing'],
+  );
+});
+
+test('a prompt that names a service brings back the message that set its values', () => {
+  const r = promptRecall(ARCHIVE, 'Add a staging deploy step for acme-billing to the release script.');
+  expect(r).not.toBe(null);
+  expect(r!.text.startsWith(JIT_LEAD)).toBe(true);
+  expect(r!.text).toContain('29860');
+  expect(r!.text).toContain('OPS-96797');
+  expect(r!.text.includes('dfea153d2')).toBe(false);
+});
+
+test('words most messages share are not enough', () => {
+  expect(promptRecall(ARCHIVE, 'Deploy everything to staging now.')).toBe(null);
+});
+
+test('a message already attached is not attached again', () => {
+  const first = promptRecall(ARCHIVE, 'staging deploy for acme-billing')!;
+  expect(promptRecall(ARCHIVE, 'staging deploy for acme-billing', { skip: new Set(first.keys) })).toBe(null);
+});
+
+test('only messages a compaction replaced are searched, not tool outputs', () => {
+  const tools = ARCHIVE.map((r) => ({ ...r, kind: 'tool' as const }));
+  expect(promptRecall(tools, 'staging deploy for acme-billing')).toBe(null);
+});
+
+function promptCore(on: On, seen: { text: string; context?: readonly string[] }[]) {
+  on('prompt.submit', (_$, e) => {
+    seen.push({ text: e.text, context: e.context });
+    return { text: e.text, context: e.context };
+  });
+}
+const jm = (role: 'user' | 'assistant', text: string, handle: string): SessionMessage => ({ role, text, toolUses: [], handle });
+const JHISTORY = [
+  jm('user', 'For acme-billing, the staging port is 29860 and the tracking ticket is OPS-96797.', 'a'),
+  ...Array.from({ length: 8 }, (_, i) => jm('user', `For svc-${i}, deploy to staging on port ${30000 + i}.`, `s${i}`)),
+  jm('user', 'continue', 'z'),
+];
+const compactCore = (on: On) =>
+  on('session.compact', () => ({ messages: [jm('user', 'Summary: configuring services.', 'S'), JHISTORY.at(-1)!], tokensBefore: 10, tokensAfter: 5 }));
+const compactOnce = ($: any) => $.session.compact({ trigger: 'auto', messages: JHISTORY });
+
+test('after a compaction, a prompt about a lost detail carries it as hidden context', async ($, on) => {
+  memoryFs(on);
+  on('tool.call', () => ({ deny: 'no tools here' }));
+  const seen: { text: string; context?: readonly string[] }[] = [];
+  promptCore(on, seen);
+  compactCore(on);
+  await $.prompt.submit({ text: 'Add a staging deploy step for acme-billing.' } as never);
+  expect(seen.at(-1)?.context).toBe(undefined);
+  await compactOnce($);
+  await $.prompt.submit({ text: 'Add a staging deploy step for acme-billing.' } as never);
+  const ctx = seen.at(-1)?.context ?? [];
+  expect(ctx.length).toBe(1);
+  expect(ctx[0]).toContain('29860');
+  expect(seen.at(-1)?.text).toBe('Add a staging deploy step for acme-billing.');
+});
+
+test('autoRecall: false attaches nothing', { options: { autoRecall: false } }, async ($, on) => {
+  memoryFs(on);
+  on('tool.call', () => ({ deny: 'no tools here' }));
+  const seen: { text: string; context?: readonly string[] }[] = [];
+  promptCore(on, seen);
+  compactCore(on);
+  await compactOnce($);
+  await $.prompt.submit({ text: 'Add a staging deploy step for acme-billing.' } as never);
+  expect(seen.at(-1)?.context).toBe(undefined);
 });

@@ -86,6 +86,26 @@ const DEPLOY_FACTS = [
   ["F9", /https?:\/\/status\.[^\s"'`)]+/g],
   ["F10", /(?<![\w$])@[a-z][\w-]{2,}/g],
 ];
+// The owners task names two services and none of their values: does the
+// script carry what was stated for them?
+const OWNERS = "Write release/deploy-staging.sh that deploys acme-billing and kestrel-audit to staging. Keep it short when you're done.";
+const OWNER_FACTS = [
+  // same shapes as the deploy task's port, ticket, artifact URI and commit
+  ["F21", DEPLOY_FACTS.find(([id]) => id === "F3")[1]],
+  ["F22", DEPLOY_FACTS.find(([id]) => id === "F4")[1]],
+  ["F81", DEPLOY_FACTS.find(([id]) => id === "F7")[1]],
+  ["F82", DEPLOY_FACTS.find(([id]) => id === "F1")[1]],
+];
+function scoreOwners(dir) {
+  const f = join(dir, "deploy-staging.sh");
+  const text = existsSync(f) ? readFileSync(f, "utf8") : "";
+  return OWNER_FACTS.map(([id, re]) => {
+    const want = byId.get(id).a;
+    const found = [...text.matchAll(re)].map((m) => m[1] ?? m[0]);
+    const verdict = text.includes(want) ? "correct" : found.some((v) => v !== want && !want.includes(v)) ? "wrong" : "absent";
+    return { id, want, got: [...new Set(found)].slice(0, 5), verdict };
+  });
+}
 function scoreDeploy(dir) {
   const f = join(dir, "deploy-staging.sh");
   const text = existsSync(f) ? readFileSync(f, "utf8") : "";
@@ -121,12 +141,13 @@ function score(dir) {
 if (args.includes("--report")) {
   const runs = existsSync(RUNS) ? readdirSync(RUNS).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(RUNS, f), "utf8"))) : [];
   const md = [];
-  for (const task of ["env", "deploy"]) {
+  for (const task of ["env", "deploy", "owners"]) {
     const verdicts = task === "env" ? ["correct", "placeholder", "wrong", "missing"] : ["correct", "wrong", "absent"];
-    md.push(`### ${task === "env" ? "Named slots (env files)" : "Unnamed details (deploy script)"}`, "",
+    if (!runs.some((r) => (r.task ?? "env") === task)) continue;
+    md.push(`### ${task === "env" ? "Named slots (env files)" : task === "owners" ? "Services named, values not (owners task)" : "Unnamed details (deploy script)"}`, "",
       `| arm | runs | ${verdicts.join(" | ")} | transcript searches | recall calls | tool calls | task spend |`,
       `|---|---|${verdicts.map(() => "---|").join("")}---|---|---|---|`);
-    for (const arm of ["A", "C", "V", "I"]) {
+    for (const arm of ["A", "C", "V", "I", "W", "J"]) {
       const rs = runs.filter((r) => r.arm === arm && (r.task ?? "env") === task);
       if (!rs.length) continue;
       const n = (v) => rs.reduce((s, r) => s + r.slots.filter((x) => x.verdict === v).length, 0);
@@ -152,6 +173,9 @@ const ARMS = {
   C: { label: "with amnesia", plugin: {} },
   V: { label: "amnesia, 1,000 chars, values only", plugin: { budgetChars: 1000, lossIndex: false } },
   I: { label: "amnesia, 1,000 chars, values + loss index", plugin: { budgetChars: 1000, lossIndex: true } },
+  // just-in-time recall: a 1,000-char block alone (W) vs with recall attached to the prompt (J)
+  W: { label: "amnesia, 1,000-char block only", plugin: { budgetChars: 1000, lossIndex: false, autoRecall: false } },
+  J: { label: "amnesia, 1,000-char block + just-in-time recall", plugin: { budgetChars: 1000, lossIndex: false, autoRecall: true } },
 };
 const ARM_LIST = String(opt("arms", "A,C")).split(",");
 const TASKS = String(opt("tasks", "env,deploy")).split(",");
@@ -197,7 +221,8 @@ const tools = ["--disallowedTools", "Bash,PowerShell,WebFetch,WebSearch,Task,Not
 for (let rep = START; rep < START + REPS; rep++) {
   for (const arm of ARM_LIST) {
     const name = `${arm}${rep}`;
-    if (existsSync(join(RUNS, `${name}-deploy.json`))) { console.log(`${name}: done already`); continue; }
+    const want = TASKS.filter((x) => x !== "env").map((x) => `${name}-${x}.json`);
+    if (want.length && want.every((w) => existsSync(join(RUNS, w)))) { console.log(`${name}: done already`); continue; }
     console.log(`${name} (${ARMS[arm].label})`);
     const c = claude([`/compact ${LOSSY}`, "--resume", seed.sessionId, "--fork-session"], arm, "compact");
     // one compaction, two tasks: the env task in a fork first (a fork leaves the
@@ -212,7 +237,7 @@ for (let rep = START; rep < START + REPS; rep++) {
       else mkdirSync(dest);
       const { uses, block, index } = afterBoundary(p.session_id);
       const transcriptSearches = uses.filter((u) => /\.claude|\.jsonl|projects[\\/]/.test(JSON.stringify(u.input ?? {}))).length;
-      const slots = task === "env" ? score(dest) : scoreDeploy(dest);
+      const slots = task === "env" ? score(dest) : task === "owners" ? scoreOwners(dest) : scoreDeploy(dest);
       const tally = Object.fromEntries(["correct", "placeholder", "wrong", "missing", "absent"].map((v) => [v, slots.filter((s) => s.verdict === v).length]).filter(([, n]) => n));
       const run = { arm, rep, task, session: p.session_id, block, index, compactCost: c.cost, taskCost: p.cost, toolCalls: uses.length, transcriptSearches,
         recallCalls: uses.filter((u) => String(u.name).includes("recall")).length, reply: String(p.result ?? "").slice(0, 600), tally, slots };
@@ -220,7 +245,9 @@ for (let rep = START; rep < START + REPS; rep++) {
       console.log(`  ${task}: ${JSON.stringify(tally)}; block ${block}; tools ${uses.length} (transcript ${transcriptSearches}, recall ${run.recallCalls})`);
     };
     if (TASKS.includes("env") && !existsSync(join(RUNS, `${name}.json`))) runTask("env", TASK, ["--resume", c.session_id, "--fork-session"], name);
-    runTask("deploy", DEPLOY, ["--resume", c.session_id], `${name}-deploy`);
+    if (TASKS.includes("deploy")) runTask("deploy", DEPLOY, ["--resume", c.session_id], `${name}-deploy`);
+    // a task of its own per compaction: a fork would start an empty recall archive
+    else if (TASKS.includes("owners")) runTask("owners", OWNERS, ["--resume", c.session_id], `${name}-owners`);
   }
 }
 console.log(`spent $${spent.toFixed(2)}`);
