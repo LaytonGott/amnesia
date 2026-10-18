@@ -172,11 +172,21 @@ export function renderReceipt(env) {
     if (b.preservedCount != null) {
       out.push(`   preserved   ${fmtTokens(b.preservedCount)} message(s) kept verbatim`);
     }
+    if (b.retention) {
+      const r = b.retention;
+      const pct = Math.round((100 * r.held) / r.strings);
+      out.push(
+        `   kept        summary has ${fmtTokens(r.held)} of ${fmtTokens(r.strings)} exact strings from your dropped prompts (${pct}%)` +
+          (r.block ? style.green(`; amnesia's block brought back ${fmtTokens(r.block)} more`) : "")
+      );
+    }
     if (b.pluginBlock) {
       out.push(
         `   amnesia     ${style.green(
           `block kept ${fmtTokens(b.pluginBlock.details)} exact detail(s) the summary dropped`
-        )}${style.dim(` (${fmtTokens(b.pluginBlock.chars)} chars)`)}`
+        )}${b.pluginBlock.indexed ? style.green(`, named ${fmtTokens(b.pluginBlock.indexed)} more for recall`) : ""}${style.dim(
+          ` (${fmtTokens(b.pluginBlock.chars)} chars)`
+        )}`
       );
     }
     if (b.cumulativeDroppedTokens != null) {

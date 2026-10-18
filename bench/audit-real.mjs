@@ -6,6 +6,7 @@ import {
   collectHistory,
   droppedForBoundary,
   DEFAULT_ROOT,
+  exactStrings,
 } from "../src/claude.mjs";
 import { extractConstraints } from "../src/actions.mjs";
 
@@ -19,15 +20,11 @@ const STOP = new Set(
     "dont wont cant isnt arent doesnt didnt without should before being been").split(/\s+/)
 );
 
-const COMPOUND_RE = /\b[A-Za-z][A-Za-z0-9]*(?:[._/\\-][A-Za-z0-9]+)+\b/g;
 const NUMBER_RE = /\b\d[\d.]{2,}\b/g;
 
+// ids: the same exact strings the receipt reports (src/claude.mjs)
 function atomsOf(text) {
-  const ids = new Set();
-  for (const m of text.matchAll(COMPOUND_RE)) {
-    const v = m[0].toLowerCase();
-    if (v.length >= 5) ids.add(v);
-  }
+  const ids = exactStrings(text);
   const nums = new Set();
   for (const m of text.matchAll(NUMBER_RE)) nums.add(m[0]);
   return { ids, nums };
