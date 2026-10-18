@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code';
-import { specificsBlock, steerText, withSteer, type Msg } from './specifics.ts';
+import { RERANK_POOL, candidates, parsePicks, rerankPrompt, specificsBlock, steerText, withSteer, type Msg } from './specifics.ts';
 import { RECALL_DESCRIPTION, archivable, droppedFiles, promptRecall, saidRecord, search, toolRecord, type Rec } from './recall.ts';
 
 // userConfig budgetChars (plugin.json declares the default and range)
@@ -90,6 +90,8 @@ export const register: Register = (on, options) => {
   // naming what did not fit only helps when the agent can look it up
   const index = archive && options?.lossIndex !== false;
   const steer = options?.steer !== false;
+  // a small model reorders the block's shortlist by what the work in progress needs
+  const rerank = options?.rerank !== false;
   // the list a precompute was steered with: its summary is swapped in at the
   // next compaction, so that compaction is told the same thing
   let precomputeSteer: string | undefined;
@@ -238,7 +240,26 @@ export const register: Register = (on, options) => {
         ...(m.toolResults ?? []).map((r) => r.text ?? ''),
       ]),
     ].join('\n');
-    const block = specificsBlock(dropped, inContext, budget, archive, index);
+    // Haiku picks, from the learned shortlist, what continuing the work will need;
+    // any failure or slow reply leaves the learned order
+    let order: string[] | undefined;
+    if (rerank) {
+      try {
+        const pool = candidates(dropped, inContext).list.slice(0, RERANK_POOL);
+        if (pool.length >= 20) {
+          const summaryText = fresh.map((i) => done.messages[i]?.text ?? '').join('\n');
+          const keptText = kept.map((m) => m.text).join('\n');
+          const r = await $.model.complete({
+            model: 'haiku',
+            prompt: rerankPrompt(pool, `${summaryText.slice(-3000)}\n${keptText.slice(-1500)}`),
+            maxTokens: 800,
+            timeoutMs: 30_000,
+          });
+          if (r.isAnswered) order = parsePicks(r.text, pool.length).map((i) => pool[i]!.s);
+        }
+      } catch {}
+    }
+    const block = specificsBlock(dropped, inContext, budget, archive, index, order);
     if (!block) return done;
 
     const messages = [...done.messages];

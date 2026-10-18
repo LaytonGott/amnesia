@@ -339,15 +339,9 @@ export function scoreOf(h: Hit, n: number): number {
 
 const kept = (h: Hit, summary: string) => (h.probe ?? [h.s]).every((p) => summary.includes(p));
 
-export function specificsBlock(
-  dropped: readonly Msg[],
-  summary: string,
-  budgetChars: number,
-  // the recall tool is registered: the header points the agent at it
-  recall = false,
-  // name what else was lost when it does not all fit (only useful with recall)
-  index = false,
-): { text: string; candidates: number; missing: number; included: number; indexed: number } | null {
+// what the block draws from: the dropped details missing from what is still in
+// context, filtered and in the learned order (the shortlist a reranker sees)
+export function candidates(dropped: readonly Msg[], summary: string): { hits: number; list: (Hit & { score: number })[] } {
   const hits = collect(dropped);
   const n = Math.max(1, dropped.length);
   const missing = [...hits.values()]
@@ -361,9 +355,30 @@ export function specificsBlock(
     .sort((a, b) => b.score - a.score)
     .slice(0, 500);
   // a string inside a longer one that ranks at least as high (config.ts in src/runtime/config.ts) adds nothing
-  const top = missing.filter(
+  const list = missing.filter(
     (h) => !missing.some((o) => o.score >= h.score && o.s.length > h.s.length && within(h.s, o.s)),
   );
+  return { hits: hits.size, list };
+}
+
+export function specificsBlock(
+  dropped: readonly Msg[],
+  summary: string,
+  budgetChars: number,
+  // the recall tool is registered: the header points the agent at it
+  recall = false,
+  // name what else was lost when it does not all fit (only useful with recall)
+  index = false,
+  // a reranker's choice, most needed first: these lead, the learned order follows
+  order?: readonly string[],
+): { text: string; candidates: number; missing: number; included: number; indexed: number } | null {
+  const shortlist = candidates(dropped, summary);
+  const missing = shortlist.list;
+  const hits = { size: shortlist.hits };
+  const first = new Map((order ?? []).map((s, i) => [s, i] as const));
+  const top = first.size
+    ? [...missing.filter((h) => first.has(h.s)).sort((a, b) => first.get(a.s)! - first.get(b.s)!), ...missing.filter((h) => !first.has(h.s))]
+    : missing;
 
   const head =
     `${MARKER} Exact details the summary above dropped, verbatim from the replaced history. ` +
@@ -566,3 +581,34 @@ export function steerText(messages: readonly Msg[], budgetChars: number): { text
 // the person's own /compact instructions come first and stay whole
 export const withSteer = (instructions: string | undefined, steer: string) =>
   instructions && instructions.trim() ? `${instructions.trim()}\n\n${steer}` : steer;
+
+// ---- reranking: a small model picks what the work in progress needs --------
+// Measured on 69 real compactions (the learned ranking's top 300 reranked by
+// Haiku, given the end of the summary and the kept messages): of the 100
+// details picked per compaction, 30.0% were used again afterwards, against
+// 24.4% for the learned order alone; about $0.004 a compaction.
+
+export const RERANK_POOL = 300;
+export const RERANK_PICKS = 100;
+
+export function rerankPrompt(list: readonly Pick<Hit, 's' | 'context'>[], workInProgress: string, picks = RERANK_PICKS): string {
+  const items = list
+    .map((h, i) => `${i + 1}. ${h.s}${h.context && h.context !== h.s ? '  (' + h.context.slice(0, 90) + ')' : ''}`)
+    .join('\n');
+  return (
+    'A coding session was just compacted. Below is the end of its summary and the messages kept after it (the work in progress), ' +
+    `then numbered exact details the summary dropped. Pick the ${Math.min(picks, list.length)} details most likely to be needed to continue this work ` +
+    '(values, names and settings the next steps will use), most important first. Reply with only the numbers, comma-separated.' +
+    '\n\n--- WORK IN PROGRESS ---\n' + workInProgress + '\n\n--- DROPPED DETAILS ---\n' + items
+  );
+}
+
+// the model's numbers as indexes into the list, in its order, each once
+export function parsePicks(reply: string, size: number): number[] {
+  const out: number[] = [];
+  for (const m of reply.matchAll(/\d+/g)) {
+    const i = Number(m[0]) - 1;
+    if (i >= 0 && i < size && !out.includes(i)) out.push(i);
+  }
+  return out;
+}

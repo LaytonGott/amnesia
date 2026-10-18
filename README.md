@@ -119,6 +119,11 @@ How it picks what to add:
   Output of tools that only read files ranks last, since it can be read
   again.
 - **What it leaves out:** anything the summary already has.
+- **A second opinion:** at each compaction, Haiku reads the end of the
+  summary and the top 300 candidates and picks the 100 the work in progress
+  needs most; those lead the block. On real sessions that made 23% more of
+  the picks ones used again, for about $0.004 a compaction. Any failure keeps
+  the learned order. The `rerank` setting turns it off.
 - **The budget:** 12,000 chars by default, about 3k tokens, added to
   context after each compaction. On real sessions, going from 6,000 to
   12,000 carried 59% more of the details used again afterwards, and more

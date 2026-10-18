@@ -634,6 +634,33 @@ compaction's later prompts against its rebuilt archive:
 lower, update and pin) is now extracted as `key = value`. Real sessions
 rarely phrase settings that way, so it moved nothing.
 
+**Two-stage ranking: a small model reranks the shortlist (plugin, branch feat/xsession).**
+The learned ranking scores each detail on its own; it cannot read what the
+work is about. So at each compaction the top 300 of its list, with the end of
+the summary and the kept messages, go to Haiku in one call, which names the
+100 the next steps most likely need. The block leads with those, then the
+learned order. On the same ground truth (69 real compactions):
+
+| top 100 slots per compaction | needed again afterwards |
+|---|---|
+| learned ranking | 1,684 of 6,900 (24.4%) |
+| Haiku rerank of its top 300 | 2,069 of 6,900 (30.0%) |
+
+- **Gain:** 23% more of the block's picks are details used again. Every
+  batch of 10 compactions came out ahead.
+- **Cost:** $0.28 for all 69, about $0.004 per compaction, and up to 30 s
+  added to a compaction (it times out to the learned order).
+- **Failure:** any error, refusal or timeout keeps the learned order, so the
+  block is never worse than before. The `rerank` setting turns it off.
+
+**The receipt no longer counts the harness's own text.** Its "exact strings
+from your dropped prompts" read background-task notices, tool-use ids and tag
+names as things you typed. On this project's latest compaction those were 40 of
+64 strings, every one a miss, so the summary looked like it kept 34% when it
+kept 79% of what was typed (19 of 24). Notices and reminders are now skipped
+whole and tag names dropped; pasted contents still count. Rerun on all real
+sessions: 145 boundaries, 33.8% of typed exact strings in the summary.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
