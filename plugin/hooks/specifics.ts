@@ -308,7 +308,7 @@ const LEARNED: Record<string, number> = {
 };
 // what cannot be re-derived once lost is rarely repeated but costly when it is:
 // it keeps its place (held out, this kept as many such lines as before)
-const IRREPLACEABLE = new Set<Kind>(['hash', 'url', 'setting', 'code']);
+const IRREPLACEABLE = new Set<Kind>(['hash', 'url', 'setting', 'code', 'branch']);
 
 export function scoreOf(h: Hit, n: number): number {
   const v = h.probe ? h.probe[h.probe.length - 1] ?? h.s : h.s;
