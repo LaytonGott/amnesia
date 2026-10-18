@@ -194,7 +194,7 @@ export function promptTerms(text: string): string[] {
 const recKey = (r: Rec) => `${r.at}\u0000${r.label}\u0000${r.text.slice(0, 80)}`;
 
 // the best window of a record: where the most distinct matched terms sit close together
-function windowOf(text: string, terms: readonly string[], width: number): string {
+export function windowOf(text: string, terms: readonly string[], width: number): string {
   const low = text.toLowerCase();
   const hits: { at: number; t: string }[] = [];
   for (const t of terms) for (let i = low.indexOf(t); i >= 0 && hits.length < 400; i = low.indexOf(t, i + t.length)) hits.push({ at: i, t });
