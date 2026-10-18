@@ -82,14 +82,14 @@ or later; verified on 2.1.299+):
 - **Org-managed installs:** Claude Code only runs this hook in a plugin
   your organization lists in managed settings.
 
-**The CLI** (receipts, restore, doctor) needs Node 18+. It isn't on npm yet;
-run it straight from GitHub:
+**The CLI** (receipts, restore, doctor) needs Node 18+:
 
 ```
-npx github:LaytonGott/amnesia
+npx amnesia-cli
 ```
 
-Below, `amnesia` stands for that command. Check your setup anytime with
+Or install it once with `npm install -g amnesia-cli`, which puts `amnesia` on
+your PATH. Below, `amnesia` stands for either. Check your setup anytime with
 `amnesia doctor`.
 
 **Older Claude Code** without hooks-module plugins: `amnesia install` wires
@@ -250,7 +250,7 @@ compaction first, and appends to the result.
 
 - [x] Receipts for Claude Code and Codex CLI
 - [x] Compaction plugin: exact details appended after the summary
-- [ ] Publish the CLI to npm
+- [x] Publish the CLI to npm (`amnesia-cli`)
 - [ ] Natural ~1M-token behavioral test
 - [ ] Gemini CLI / opencode session support
 
