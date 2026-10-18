@@ -242,3 +242,24 @@ test('autoRecall: false attaches nothing', { options: { autoRecall: false } }, a
   await $.prompt.submit({ text: 'Add a staging deploy step for acme-billing.' } as never);
   expect(seen.at(-1)?.context).toBe(undefined);
 });
+
+test('plain words never attach anything on their own, however rare', () => {
+  const archive = [
+    dropped('Merge the branch and push it with the tag, then tell me.'),
+    ...Array.from({ length: 11 }, (_, i) => dropped(`For svc-${i}, the staging port is ${30000 + i}.`)),
+  ];
+  expect(promptRecall(archive, 'ok, merge it, push and tag')).toBe(null);
+});
+
+test('a name that recurs across many messages points at none of them', () => {
+  const archive = Array.from({ length: 40 }, (_, i) => dropped(`Worked on agent-scientist step ${i}; for svc-${i} the port is ${30000 + i}.`));
+  expect(promptRecall(archive, 'Add one more agent-scientist primitive for scheduling.')).toBe(null);
+});
+
+test('tool calls archived with a message are not matched, only what it said', () => {
+  const archive = [
+    dropped('Checking the config now.\n[Bash] command: cat acme-billing.env\nACME_BILLING_PORT=29860'),
+    ...Array.from({ length: 11 }, (_, i) => dropped(`For svc-${i}, the staging port is ${30000 + i}.`)),
+  ];
+  expect(promptRecall(archive, 'Add a staging deploy step for acme-billing.')).toBe(null);
+});
