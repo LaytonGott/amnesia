@@ -305,20 +305,44 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
   return hits;
 }
 
-// Learned from 68 real compactions (bench/needed-later.mts): log-odds, per
-// feature, that a dropped detail is one the person later had to say again.
-// Settings, the person's own words, things said often and said late come
-// back; long strings, paths, files and things only tools printed do not.
+// Learned from 70 real compactions (bench/needed-later.mts): log-odds, per
+// feature, that a dropped detail is used again afterwards, by the person or
+// the agent. Settings, things said often and said late come back; long
+// strings, paths, hashes and things only tools printed do not. The shape of a
+// name counts too (after Aider's repo map): short ALLCAPS names and short
+// plain words come back, long numbers and long paths do not.
 const LEARNED: Record<string, number> = {
-  'best:0': -0.46, 'best:1': -0.38, 'best:2': -0.03, 'best:3': 0.21, 'best:4': 1.87,
-  'cnt:0': 0.02, 'cnt:1': -0.16, 'cnt:2': -0.15, 'cnt:3': 0.46,
-  'kind:branch': -0.8, 'kind:code': -0.27, 'kind:dotted': 0.64, 'kind:env': -1.15, 'kind:file': -1.51,
-  'kind:flag': -1.13, 'kind:handle': -0.66, 'kind:hash': -2.12, 'kind:ident': -0.45, 'kind:path': -2.04,
-  'kind:quoted': 0.16, 'kind:setting': 2.86, 'kind:url': -2.07, 'kind:version': -1.23,
-  'len:0': 0.77, 'len:1': -0.75, 'len:2': -1.71,
-  'read:false': 0.06, 'read:true': -0.46,
-  'rec:0': -0.33, 'rec:1': -0.12, 'rec:2': 0.1, 'rec:3': 0.08, 'rec:4': 0.51,
+  'best:0': -0.49, 'best:1': -0.79, 'best:2': 0.37, 'best:3': 0.32, 'best:4': 0.61,
+  'cnt:0': -0.43, 'cnt:1': -0.21, 'cnt:2': 0.3, 'cnt:3': 1.25,
+  'kind:branch': -1.4, 'kind:code': -0.42, 'kind:dotted': 0.52, 'kind:env': -0.49,
+  'kind:file': -0.75, 'kind:flag': 0.47, 'kind:handle': -0.09, 'kind:hash': -1.99,
+  'kind:ident': -0.01, 'kind:path': -0.83, 'kind:quoted': -0.26, 'kind:setting': 1.28,
+  'kind:url': -1.25, 'kind:version': -1.02,
+  'len:0': 0.57, 'len:1': -0.2, 'len:2': -1.4,
+  'read:false': 0.06, 'read:true': -0.49,
+  'rec:0': -0.52, 'rec:1': -0.32, 'rec:2': -0.05, 'rec:3': 0.26, 'rec:4': 1.01,
+  'shape:camel+': 0.23, 'shape:camel-': 0.43, 'shape:dot+': -0.24, 'shape:dot-': 0.34,
+  'shape:kebab+': -0.1, 'shape:kebab-': 0.63, 'shape:num+': -0.92, 'shape:num-': 0.72,
+  'shape:path+': -0.82, 'shape:path-': 0.42, 'shape:plain+': 0.29, 'shape:plain-': 1.87,
+  'shape:snake+': -0.22, 'shape:snake-': -0.03, 'shape:upper+': 0.53, 'shape:upper-': 2.28,
 };
+// what the person wrote themselves ranks a step higher: held out, that kept
+// more of what they later repeated than the old fit on that label alone
+// (65.7% vs 64.9%), while carrying 41.8% vs 36.2% of all later use
+const OWN_WORDS = 1;
+// a name's shape: its casing style, and whether it runs to 8+ characters
+function casingOf(v: string): string {
+  const style =
+    /^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(v) ? 'kebab'
+    : /^[a-z]+(?:[A-Z][a-z0-9]*)+$/.test(v) ? 'camel'
+    : /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(v) ? 'snake'
+    : /^[A-Z][A-Z0-9_]+$/.test(v) ? 'upper'
+    : /[\\/]/.test(v) ? 'path'
+    : /\./.test(v) ? 'dot'
+    : /^\d+$/.test(v) ? 'num'
+    : 'plain';
+  return `${style}${v.length >= 8 ? '+' : '-'}`;
+}
 // what cannot be re-derived once lost is rarely repeated but costly when it is:
 // it keeps its place (held out, this kept as many such lines as before)
 const IRREPLACEABLE = new Set<Kind>(['hash', 'url', 'setting', 'code', 'branch']);
@@ -333,8 +357,9 @@ export function scoreOf(h: Hit, n: number): number {
     `cnt:${h.count >= 10 ? 3 : h.count >= 4 ? 2 : h.count >= 2 ? 1 : 0}`,
     `len:${v.length >= 30 ? 2 : v.length >= 12 ? 1 : 0}`,
     `read:${h.onlyRead}`,
+    `shape:${casingOf(v)}`,
   ];
-  return features.reduce((s, f) => s + (LEARNED[f] ?? 0), 0) + (IRREPLACEABLE.has(h.kind) ? 4 : 0);
+  return features.reduce((s, f) => s + (LEARNED[f] ?? 0), 0) + (IRREPLACEABLE.has(h.kind) ? 4 : 0) + (h.best === WEIGHT.user ? OWN_WORDS : 0);
 }
 
 const kept = (h: Hit, summary: string) => (h.probe ?? [h.s]).every((p) => summary.includes(p));

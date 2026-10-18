@@ -1,5 +1,6 @@
 import { test, expect } from 'claude-code/testing';
-import { specificsBlock, type Msg } from '../hooks/specifics.ts';
+import { scoreOf, specificsBlock, type Msg } from '../hooks/specifics.ts';
+type Hit = Parameters<typeof scoreOf>[0];
 
 const user = (text: string): Msg => ({ role: 'user', text, toolUses: [] });
 const asst = (text: string, toolUses: Msg['toolUses'] = []): Msg => ({ role: 'assistant', text, toolUses });
@@ -239,4 +240,12 @@ test('"set `key` to value" is a setting', () => {
   const got = items(specificsBlock([user('Set `retry_timeout_ms` to 7350 and bump `api_version` to `2025-01`.')], '', 6000)?.text);
   expect(got).toContain('retry_timeout_ms = 7350');
   expect(got).toContain('api_version = 2025-01');
+});
+
+test("a name's shape counts, and so does who wrote it", () => {
+  const hit = (s: string, kind: Hit['kind'], best: number) => ({ s, kind, count: 1, best, onlyRead: false, inOwn: true, last: 5, context: s } as Hit);
+  // a short ALLCAPS flag outranks a long run of digits, all else equal
+  expect(scoreOf(hit('STAGE', 'ident', 3), 10) > scoreOf(hit('20251018093011', 'ident', 3), 10)).toBe(true);
+  // the person's own words rank a step above the agent's
+  expect(scoreOf(hit('svc-api', 'ident', 4), 10) - scoreOf(hit('svc-api', 'ident', 3), 10) > 1).toBe(true);
 });
