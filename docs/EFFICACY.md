@@ -500,6 +500,18 @@ afterwards.
 - **One loss:** the vague ledger-holds prompt now attaches nothing, not
   even the release commit.
 
+**Tried and not shipped: write-time recall.** The same matcher, fed what
+an edit names (the file and its folder, plus the head of the text written),
+with results attached to the Write/Edit result. Replayed offline on the
+7,850 real edits made after compactions, 13% would have carried messages.
+- **Some fit:** editing a harness file brought back that task's spec, and
+  editing a test brought back the rule it checks.
+- **Many didn't:** the agent's own earlier design notes, matched on shared
+  code names, and one match on a summary's transcript-path line, because
+  scripts contain long paths and ids.
+
+With no bench showing a gain, that context cost isn't justified.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
