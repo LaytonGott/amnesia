@@ -661,6 +661,37 @@ kept 79% of what was typed (19 of 24). Notices and reminders are now skipped
 whole and tag names dropped; pasted contents still count. Rerun on all real
 sessions: 145 boundaries, 33.8% of typed exact strings in the summary.
 
+**Live check of the rerank** (bench seed, Haiku as the session model, a
+five-sentence lossy summary): Haiku answered in 5.1 s, and the block carried
+the 40 seeded facts the summary dropped, so all 100 survived. With only 58
+candidates it all fit, so the rerank changed the order and nothing else.
+The same run surfaced `history.txt`, the tail of `ci/build-history.txt`,
+which a dotted name can no longer start after a hyphen to produce.
+
+**What other agents do, and what it means here.** Read from source:
+- **Codex CLI:** keeps the newest user messages verbatim, up to 20k tokens.
+- **Cursor:** keeps the last user message verbatim. When summarizing fails,
+  it falls back to a trimmed transcript.
+- **opencode and Cline:** keep a recent tail of 2k–20k tokens, and cut
+  tool results to 2,000 chars before summarizing. Cline also adds a file list
+  built by code.
+- **Gemini CLI:** masks old tool output down to its first and last 10 lines
+  plus a file pointer, then runs a second pass asking what the summary
+  omitted.
+- **Research:** observation masking matched summarization on SWE-bench at
+  half the cost (arXiv 2508.21433).
+
+Tested on the same ground truth:
+- **Your newest dropped prompts verbatim** (the Codex/Cursor trick), given a
+  share of the 12k block: fewer later-needed details at every share. 36.0%
+  with the ranked block alone, 33.0% at 15%, 30.2% at 25%, 24.0% at 50%.
+  Claude Code's summary already lists every message you sent, and a
+  prompt's words cost more per needed value than the values do. Rejected.
+- **Carrying the last block into the next compaction** (opencode, Roo):
+  already done. An earlier block's items re-enter the ranking as old.
+- **The verify pass** (Gemini): the block is that diff, computed without a
+  model call.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
