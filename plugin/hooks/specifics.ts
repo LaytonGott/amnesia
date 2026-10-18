@@ -61,8 +61,11 @@ const KEY = String.raw`([A-Za-z_][\w.-]*[_.][\w.-]*|[A-Z][A-Z0-9_]{2,})`;
 const keyOk = (k: string) => k.length >= 4 && /[A-Za-z]{2}/.test(k);
 // code defaults and type hints say nothing a summary needs (= None, = bool, = 0.0)
 const TRIVIAL = /^(?:none|null|nil|undefined|true|false|yes|no|bool|str|int|float|string|number|any|object|0|0\.0|1|\[\]|\{\}|""|'')$|\[/i;
+// code and shell, not values: GENERIC = new ..., NODE = $1, DIST = $(cd ...)
+const CODE_VALUE = /^(?:new|await|this|self|return|function|class|const|let|var|import|from|require|async|typeof|lambda|def)$|^\\?[$(]/;
 // markdown emphasis (Biggest DROPPED: **f3d9f2e5**) means a label in prose, not a key
-const valueOk = (v: string) => /[A-Za-z0-9]/.test(v) && !TRIVIAL.test(v) && !v.startsWith('//') && !/^[*_]/.test(v);
+const valueOk = (v: string) =>
+  /[A-Za-z0-9]/.test(v) && !TRIVIAL.test(v) && !CODE_VALUE.test(v) && !v.startsWith('//') && !/^[*_]/.test(v);
 // actions.mjs:261 is a file and a line, not a key and a value
 const FILE_KEY = /\.[A-Za-z]{1,6}$/;
 // `—`, `\x1b`: an escape sequence, not a value
@@ -124,8 +127,9 @@ const PATTERNS: Pattern[] = [
   { kind: 'url', re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s)>"'`\]]+/g },
   { kind: 'path', re: PATH },
   { kind: 'file', re: /\b[\w-]+\.(?:ts|tsx|js|mjs|cjs|py|rs|go|java|json|md|yml|yaml|toml|sql|sh|ps1|css|html|txt|lock|ini|env|jsonl)\b/g },
-  // not a method call (out.push(x), $.ui.status?.()): that is code, read again from the file
-  { kind: 'dotted', re: /\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
+  // not a method call (out.push(x), $.ui.status?.()): that is code, read again from the file;
+  // nor a field of a one- or two-letter variable (r.stderr, e.message, opts is kept)
+  { kind: 'dotted', re: /\b(?![A-Za-z_]\w?\.)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
   { kind: 'version', re: /\bv?\d+\.\d+\.\d+(?:[-+][\w.]+)?\b/g },
   // hex runs inside a UUID (8-4-4-4-12) are ids, not commits
   // nor a path segment (bundled-skills/2.1.299/1c0faf7d.../plugin-authoring)
@@ -358,8 +362,16 @@ export function specificsBlock(
   // more is missing than fits: part of the budget names what else was lost, so
   // the agent knows what to look up instead of not knowing it lost anything
   if (index && left().length > 0) {
+    const full = pick;
     pick = fill(top, head.length, Math.floor(budgetChars * VALUE_SHARE));
-    indexLine = lossIndex(left(), budgetChars - pick.used - 1);
+    const draft = lossIndex(left(), budgetChars - pick.used - 1);
+    // the room the index does not use goes back to verbatim values; the index
+    // is then rebuilt over what still did not fit, never longer than before
+    if (!draft) pick = full;
+    else {
+      pick = fill(top, head.length, budgetChars - draft.text.length - 1);
+      indexLine = lossIndex(left(), draft.text.length + 1);
+    }
   }
   if (pick.lines.length === 0 && !indexLine) return null;
   return {
@@ -432,7 +444,10 @@ const VERB_END = /\s+(?:is|was|are|were|=)\s*$/i;
 
 // what a dropped detail is, without its value: "staging port" (owner acme-billing),
 // "settlement_retry_timeout_ms", "release to commit"
-export function labelOf(h: Pick<Hit, 's' | 'kind' | 'probe' | 'context'>): { owner?: string; what: string } | null {
+export function labelOf(
+  h: Pick<Hit, 's' | 'kind' | 'probe' | 'context'>,
+  { words = false }: { words?: boolean } = {},
+): { owner?: string; what: string } | null {
   const value = h.probe?.[h.probe.length - 1];
   const subject = (clause: string) =>
     (value ? clause.replace(value, '') : clause)
@@ -454,6 +469,11 @@ export function labelOf(h: Pick<Hit, 's' | 'kind' | 'probe' | 'context'>): { own
     if ([...h.context.matchAll(/\S*:\/\/\S+/g)].some((m) => m[0].includes(h.s))) return null;
     return { what: h.s };
   }
+  // a bare value (a hash, a URL, a version) has no name of its own. The words
+  // before it make a poor label for the loss index ("1 4657", "source": on real
+  // sessions 1-8% of such entries were needed again), so only a caller that
+  // shows them beside the value asks for them
+  if (!words) return null;
   const at = h.context.indexOf(h.s);
   const before = (at >= 0 ? h.context.slice(0, at) : '')
     .replace(/[`"'*()[\]{}=,;:|>#-]+/g, ' ')

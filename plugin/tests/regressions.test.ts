@@ -101,3 +101,25 @@ test('a flag that is a prefix of a longer flag is still its own item', () => {
   expect(got).toContain('--out');
   expect(got).toContain('--output-format json');
 });
+
+test('shell expansions, code keywords and short-variable fields are not details', () => {
+  const got = items(
+    specificsBlock(
+      [asst('Ran it.', [{ tool_use_id: 'b2', tool: 'Bash', input: { command: 'NODE=$(which node); DIST=$(cd dist && pwd); echo $NODE' }, text: 'ok' }]), asst('`GENERIC` = `new`; r.stderr and e.message were empty, but config.temperature is 0.7.')],
+      '',
+      WIDE,
+    )?.text,
+  );
+  expect(got.some((s) => /^(NODE|DIST|GENERIC) = /.test(s))).toBe(false);
+  expect(got).not.toContain('r.stderr');
+  expect(got).not.toContain('e.message');
+  expect(got.some((s) => s.includes('config.temperature'))).toBe(true);
+});
+
+test('the loss index names things by their names, not by the words before a bare value', () => {
+  const many = Array.from({ length: 60 }, (_, i) => user(`For svc-${i}-api, the staging port is ${20000 + i}. See build ${i} at commit ${(0xabc0000 + i * 4099).toString(16)}9 for details.`));
+  const line = (specificsBlock(many, '', 3000, true, true)?.text ?? '').split('\n').find((l) => l.startsWith('Also dropped')) ?? '';
+  expect(line.length > 0).toBe(true);
+  expect(line.includes('at commit')).toBe(false);
+  expect(line).toMatch(/svc-\d+-api \(staging port\)/);
+});
