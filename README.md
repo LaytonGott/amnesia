@@ -167,6 +167,7 @@ Where it lives, and how to control it:
    replaced    ~731 messages (45 prompts, 686 replies, 490 tool batches)
    origin      replaced history lives in session a74c3675 (this file starts post-compaction)
    preserved   8 message(s) kept verbatim
+   kept        summary has 71 of 292 exact strings from your dropped prompts (24%)
    cumulative  966,964 tokens forgotten this session
 
    what your agent now believes:
@@ -177,11 +178,16 @@ Where it lives, and how to control it:
    03:24  user  Audit only. Do not modify code. …
 ```
 
+`kept` counts the distinct paths, ids, versions and hyphenated names (5+
+characters) in the prompts that were replaced, and how many of them the
+summary still contains. It is the same measure as the 19% figure above.
+
 With the plugin active, each compaction's receipt also shows what the block
 kept:
 
 ```
-   amnesia     block kept 54 exact detail(s) the summary dropped (5,941 chars)
+   kept        summary has 22 of 79 exact strings from your dropped prompts (28%); amnesia's block brought back 8 more
+   amnesia     block kept 75 exact detail(s) the summary dropped (5,999 chars)
 
    what amnesia kept (first 5):
    + For brisk-payouts: the pinned SDK version is 5.13.1; the staging port is 45574

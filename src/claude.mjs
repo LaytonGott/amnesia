@@ -55,9 +55,51 @@ export function isAmnesiaBlock(text) {
 // also starts with the marker but is not a block
 export function pluginBlockOf(text) {
   if (!/^\s*\[amnesia\] Exact details/.test(text)) return null;
-  const lines = text.split(/\r?\n/).filter((l) => l.startsWith("- "));
+  const all = text.split(/\r?\n/);
+  const lines = all.filter((l) => l.startsWith("- "));
   const details = lines.reduce((n, l) => n + l.split(" — \"")[0].split("; ").length, 0);
-  return { details, chars: text.length, items: lines.map((l) => l.slice(2)) };
+  // the loss index: "Also dropped (...): a (x, y) · b · and 92 more."
+  const index = all.find((l) => l.startsWith("Also dropped"));
+  let indexed = 0;
+  if (index) {
+    const body = index.slice(index.indexOf("): ") + 3).replace(/\.$/, "");
+    for (const e of body.split(" · ")) {
+      const more = e.match(/^and (\d+) more$/);
+      if (more) indexed += Number(more[1]);
+      else indexed += (e.match(/\((.*)\)$/)?.[1].split(", ").length ?? 1);
+    }
+  }
+  return { details, indexed, chars: text.length, items: lines.map((l) => l.slice(2)) };
+}
+
+// exact strings in what someone typed: compound tokens of 5+ characters
+// (paths, ids, versions, hyphenated names), lowercased. The measure behind
+// bench/audit-real.mjs and the README's figure for long sessions.
+const EXACT_RE = /\b[A-Za-z][A-Za-z0-9]*(?:[._/\\-][A-Za-z0-9]+)+\b/g;
+export function exactStrings(text) {
+  const out = new Set();
+  for (const m of String(text ?? "").matchAll(EXACT_RE)) {
+    const v = m[0].toLowerCase();
+    if (v.length >= 5) out.add(v);
+  }
+  return out;
+}
+
+// of the exact strings in the prompts a compaction replaced: how many the
+// summary still has, and how many more the plugin's block brought back
+export function retentionOf(droppedTexts, summary, block) {
+  const strings = new Set();
+  for (const t of droppedTexts) for (const s of exactStrings(t)) strings.add(s);
+  if (strings.size === 0 || summary == null) return null;
+  const sum = summary.toLowerCase();
+  const blk = (block?.items ?? []).join("\n").toLowerCase();
+  let held = 0;
+  let restored = 0;
+  for (const s of strings) {
+    if (sum.includes(s)) held++;
+    else if (blk.includes(s)) restored++;
+  }
+  return { strings: strings.size, held, block: restored };
 }
 
 const REMINDER_ONLY =/^\s*<system-reminder>[\s\S]*<\/system-reminder>\s*$/;
@@ -111,10 +153,13 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
     lines++;
     if (!line) continue;
 
+    // a prompt or summary that only mentions compact_boundary is read as what it is below
     if (line.includes("compact_boundary")) {
+      let boundary = false;
       try {
         const o = JSON.parse(line);
         if (o && o.type === "system" && o.subtype === "compact_boundary") {
+          boundary = true;
           const md = o.compactMetadata || o.compact_metadata || {};
           const uuids = Array.isArray(md.preservedMessages?.uuids)
             ? md.preservedMessages.uuids
@@ -140,7 +185,7 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
           boundaries.push(current);
         }
       } catch {}
-      continue;
+      if (boundary) continue;
     }
 
     const maybeUser =
@@ -208,6 +253,7 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
     b.coveredUsers = droppedUsers.length;
     b.coveredAssistants = dropped(assistants).length;
     b.coveredToolResults = dropped(toolBatches).length;
+    b.retention = retentionOf(droppedUsers.map((u) => u.text), b.summary, b.pluginBlock);
     if (withPreviews) {
       b.previews = droppedUsers
         .slice()
@@ -257,9 +303,11 @@ export async function collectHistory(file) {
     if (!line) continue;
 
     if (line.includes("compact_boundary")) {
+      let boundary = false;
       try {
         const o = JSON.parse(line);
         if (o && o.type === "system" && o.subtype === "compact_boundary") {
+          boundary = true;
           const md = o.compactMetadata || o.compact_metadata || {};
           const uuids = Array.isArray(md.preservedMessages?.uuids)
             ? md.preservedMessages.uuids
@@ -277,7 +325,7 @@ export async function collectHistory(file) {
           });
         }
       } catch {}
-      continue;
+      if (boundary) continue;
     }
 
     const maybeUser =

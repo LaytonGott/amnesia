@@ -23,6 +23,9 @@ import {
   encodeProjectPath,
   extractText,
   listSessionFiles,
+  exactStrings,
+  pluginBlockOf,
+  retentionOf,
 } from "../src/claude.mjs";
 import { isToolResultPath } from "../src/actions.mjs";
 
@@ -341,4 +344,63 @@ test("the receipt shows what the plugin's block kept at each compaction", async 
   assert.ok(out.includes("what amnesia kept"));
   const j = JSON.parse(run(["--json", sid, "--root", root]));
   assert.equal(j.boundaries[0].pluginBlock.details, 3);
+});
+
+test("the receipt says how many exact strings the summary kept and the block brought back", async () => {
+  const root = join(tmp, "root-retention");
+  const dir = join(root, "projR");
+  mkdirSync(dir, { recursive: true });
+  const sid = "cdcdcdcd-0000-0000-0000-000000000001";
+  writeFileSync(
+    join(dir, `${sid}.jsonl`),
+    jsonl([
+      { type: "user", uuid: "q1", timestamp: "2026-10-01T10:00:00.000Z", message: { role: "user", content: "Edit src/runtime/config.ts on feat/compact-plugin and track it as OPS-96797." } },
+      { type: "system", subtype: "compact_boundary", uuid: "b1", timestamp: "2026-10-01T10:05:00.000Z", compactMetadata: { trigger: "auto", preTokens: 50000, postTokens: 6000 } },
+      { type: "user", uuid: "s1", isCompactSummary: true, message: { role: "user", content: "Summary: edited src/runtime/config.ts." } },
+      {
+        type: "user",
+        uuid: "k1",
+        message: {
+          role: "user",
+          content:
+            "[amnesia] Exact details the summary above dropped, verbatim from the replaced history.\n" +
+            "- OPS-96797 — \"track it as OPS-96797\"\n" +
+            "Also dropped (look up with recall before relying on them): acme-billing (staging port, tracking ticket) · release_gate_key · and 7 more.",
+        },
+      },
+    ])
+  );
+  const s = await scanFile({ path: join(dir, `${sid}.jsonl`), project: "projR", session: sid, size: 0, mtimeMs: 0 });
+  assert.deepEqual(s.boundaries[0].retention, { strings: 3, held: 1, block: 1 });
+  assert.equal(s.boundaries[0].pluginBlock.indexed, 10);
+  const out = run([sid, "--root", root]);
+  assert.ok(out.includes("summary has 1 of 3 exact strings from your dropped prompts (33%)"), out);
+  assert.ok(out.includes("amnesia's block brought back 1 more"), out);
+  assert.ok(out.includes("named 10 more for recall"), out);
+});
+
+test("exact strings are compound tokens of 5+ characters, lowercased", () => {
+  assert.deepEqual([...exactStrings("See src/A.ts, OPS-77412 and v1.2.3; not a-b or plain words")].sort(), ["ops-77412", "src/a.ts", "v1.2.3"]);
+  assert.equal(retentionOf(["nothing exact here"], "s", null), null);
+  assert.equal(retentionOf(["edit src/a.ts"], null, null), null);
+  assert.equal(pluginBlockOf("[amnesia] Exact details x\n- a = 1").indexed, 0);
+});
+
+test("a prompt or summary that mentions compact_boundary is still read", async () => {
+  const p = join(tmp, "mentions-boundary.jsonl");
+  writeFileSync(
+    p,
+    jsonl([
+      { type: "user", uuid: "q1", timestamp: "2026-10-01T10:00:00.000Z", message: { role: "user", content: "why does the compact_boundary row skip src/claude.mjs?" } },
+      { type: "system", subtype: "compact_boundary", uuid: "b1", timestamp: "2026-10-01T10:05:00.000Z", compactMetadata: { trigger: "auto", preTokens: 50000, postTokens: 6000 } },
+      { type: "user", uuid: "s1", isCompactSummary: true, message: { role: "user", content: "Summary: debugged the compact_boundary parser in src/claude.mjs." } },
+    ])
+  );
+  const file = { path: p, project: "x", session: "mentions-boundary", size: 0, mtimeMs: 0 };
+  const h = await collectHistory(file);
+  assert.deepEqual(h.prompts.map((x) => x.text), ["why does the compact_boundary row skip src/claude.mjs?"]);
+  const s = await scanFile(file);
+  assert.equal(s.boundaries.length, 1);
+  assert.equal(s.boundaries[0].summary, "Summary: debugged the compact_boundary parser in src/claude.mjs.");
+  assert.deepEqual(s.boundaries[0].retention, { strings: 2, held: 2, block: 0 });
 });
