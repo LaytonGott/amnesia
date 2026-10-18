@@ -582,6 +582,34 @@ precision, for about 1,500 more tokens after each compaction. Past it, the
 needed details left over are mostly ones the block skips on purpose
 (things only tool output ever showed).
 
+**What is still missed, and by kind.** At 12,000 chars:
+- **37%** of needed-later details are carried.
+- **25%** are filtered out by design, because only tool traffic ever showed
+  them.
+- **38%** rank below the budget, almost all code identifiers the agent
+  keeps using while it codes. Those are in the files.
+
+What can't be re-derived is now well covered:
+
+| kind | old (6k, hand-tuned) | now (12k, learned) |
+|---|---|---|
+| settings | 89% | 100% |
+| ticket / error codes | 42% | 81% |
+| branches (protected) | 50% | 92% |
+| hashes | 65% | 65% |
+| URLs | 29% | 42% |
+| file paths | 21% | 5% |
+
+Paths dropped because, one by one, they're rarely reused. Claude Code also
+re-attaches the 5 most recently read files after a compaction.
+
+**Just-in-time recall on the same ground truth.** Replaying each real
+compaction's later prompts against its rebuilt archive:
+- **Rate:** 22.8% of prompts get an attachment.
+- **Marginal value:** 66.9% of those attachments hold a lost value that was
+  used again afterwards and that the 12,000-char block didn't already
+  carry.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
