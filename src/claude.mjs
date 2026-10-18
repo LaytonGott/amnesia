@@ -77,11 +77,17 @@ export function pluginBlockOf(text) {
 // (paths, ids, versions, hyphenated names), lowercased. The measure behind
 // bench/audit-real.mjs and the README's figure for long sessions.
 const EXACT_RE = /\b[A-Za-z][A-Za-z0-9]*(?:[._/\\-][A-Za-z0-9]+)+\b/g;
+// what the harness wraps around or injects into a user row, not typed by anyone:
+// background-task notices and reminders whole, then the tag names of the rest
+// (<pasted_content>, <command-name>), whose contents stay
+const INJECTED_RE = /<(task-notification|system-reminder)>[\s\S]*?<\/\1>/g;
+const TAG_RE = /<\/?[a-z][\w-]*(?:\s[^<>]*)?>/g;
 export function exactStrings(text) {
   const out = new Set();
-  for (const m of String(text ?? "").matchAll(EXACT_RE)) {
+  const typed = String(text ?? "").replace(INJECTED_RE, " ").replace(TAG_RE, " ");
+  for (const m of typed.matchAll(EXACT_RE)) {
     const v = m[0].toLowerCase();
-    if (v.length >= 5) out.add(v);
+    if (v.length >= 5 && !v.startsWith("toolu_")) out.add(v);
   }
   return out;
 }

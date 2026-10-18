@@ -385,6 +385,10 @@ test("exact strings are compound tokens of 5+ characters, lowercased", () => {
   assert.equal(retentionOf(["nothing exact here"], "s", null), null);
   assert.equal(retentionOf(["edit src/a.ts"], null, null), null);
   assert.equal(pluginBlockOf("[amnesia] Exact details x\n- a = 1").indexed, 0);
+  // harness-injected rows and tags count for nothing; pasted contents still count
+  const note = "<task-notification><task-id>b5f9e1z4z</task-id><output-file>C:\\x\\tasks\\b5f9e1z4z.output</output-file></task-notification>";
+  assert.deepEqual([...exactStrings(note)], []);
+  assert.deepEqual([...exactStrings('<pasted_content id="1b8f">deploy svc-3-api</pasted_content> toolu_01abc_def')], ["svc-3-api"]);
 });
 
 test("a prompt or summary that mentions compact_boundary is still read", async () => {
