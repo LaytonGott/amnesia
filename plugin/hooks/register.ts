@@ -44,6 +44,8 @@ async function loadArchive($: EngineInterface, dir: string): Promise<Rec[]> {
 export const register: Register = (on, options) => {
   const budget = budgetOf(options?.budgetChars);
   const archive = options?.recall !== false;
+  // naming what did not fit only helps when the agent can look it up
+  const index = archive && options?.lossIndex !== false;
 
   on('session.start', async ($, e, next) => {
     const r = await next(e);
@@ -120,14 +122,14 @@ export const register: Register = (on, options) => {
         ...(m.toolResults ?? []).map((r) => r.text ?? ''),
       ]),
     ].join('\n');
-    const block = specificsBlock(dropped, inContext, budget, archive);
+    const block = specificsBlock(dropped, inContext, budget, archive, index);
     if (!block) return done;
 
     const messages = [...done.messages];
     const after = fresh[fresh.length - 1] ?? 0;
     messages.splice(after + 1, 0, { role: 'user', text: block.text, toolUses: [] });
     const { tokensAfter: _stale, ...rest } = done;
-    $.ui.status(`amnesia: kept ${block.included} dropped detail(s)`);
+    $.ui.status(`amnesia: kept ${block.included} dropped detail(s)${block.indexed ? `, named ${block.indexed} more` : ''}`);
     return { ...rest, messages };
   }).catch(($, e, next) => next(e));
 };

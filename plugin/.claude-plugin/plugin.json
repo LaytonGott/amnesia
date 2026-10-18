@@ -20,6 +20,12 @@
       "title": "Recall tool",
       "description": "Archive every tool output and what each compaction drops (under <config>/amnesia/archive/<session>/), and give the agent a recall tool to search them.",
       "default": true
+    },
+    "lossIndex": {
+      "type": "boolean",
+      "title": "Name what didn't fit",
+      "description": "When more was dropped than the block can hold, spend part of it naming the rest (\"acme-billing (staging port, ticket)\") so the agent knows to look it up with recall. Needs the recall tool.",
+      "default": true
     }
   }
 }

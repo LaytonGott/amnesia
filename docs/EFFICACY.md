@@ -381,6 +381,41 @@ this size usually keep these facts), Sonnet, 3 runs per arm, and scoring by
 pattern for 10 facts. Paths or tools the agent made up outside those 10 are
 not counted. Spend: $6.30, smoke run included.
 
+### When the block is too small: the loss index (plugin 0.9.0)
+
+On real long compactions the block can't hold most of what was lost. The 68
+compactions on the test machine that dropped 200+ messages each had 500+
+missing details, and the 6,000-char block carried 60–150 of them. To mimic
+that, the same deploy task ran with the block cut to 1,000 chars, which
+holds about 15 of this session's ~140 missing details, none of them the
+release's own. Two arms, both with recall on:
+- **V:** values only.
+- **I:** values plus the loss index. A line names what else was lost,
+  without the values ("lumen-ledger (owner handle, pinned SDK version) ·
+  incident status page · … and 92 more"), and says to look things up with
+  recall.
+
+| arm (1,000-char block) | correct | wrong | absent | recall calls |
+|---|---|---|---|---|
+| values only | 1/30 | **6** | 23 | 0 |
+| values + loss index | **9/30** | **0** | 21 | 8 |
+
+- **A small values-only block misleads.** All 3 V runs deployed the release
+  at `lumen-holds`' commit and region. Those were the only commit and region
+  in the block, and they belong to a different service. This is the first
+  wrong-value harm in any arm. Claude Code alone left the values out
+  instead; the full 6,000-char block had the right ones.
+- **The index works by telling the agent something was lost.** None of the
+  10 deploy facts were named in the index line. The agent searched recall
+  anyway, for the task ("ledger-holds release staging region port deploy")
+  and to check the stray values ("lumen-holds"). That recovered the commit,
+  port and pydantic pin and caught the confusion: 0 wrong.
+- **Still well short of a block that holds everything** (22/30). The agent
+  searched broadly, then parameterized what it didn't find.
+
+So the index is on by default whenever recall is on (`lossIndex`). Limits:
+the same as above, plus 3 runs per arm. Spend: $4.28.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

@@ -123,6 +123,12 @@ How it picks what to add:
   context after each compaction. It is the plugin's `budgetChars` setting
   (1,000–40,000): `claude plugin configure amnesia`, or the plugin's row in
   the config menu.
+- **When it doesn't all fit:** long sessions lose far more than any block
+  holds. Then part of the budget names the rest without values ("Also
+  dropped (look up with recall …): acme-billing (staging port, ticket) · …
+  and 92 more"). That way the agent knows something was lost and searches
+  before relying on a guess. With a 1,000-char block, that took a deploy
+  task from 6 wrong values to 0. The `lossIndex` setting turns it off.
 
 It never changes the summary, and on any failure Claude Code's own result
 stands. Design and measurements: [docs/DESIGN-compact-hook.md](docs/DESIGN-compact-hook.md).

@@ -305,7 +305,9 @@ export function specificsBlock(
   budgetChars: number,
   // the recall tool is registered: the header points the agent at it
   recall = false,
-): { text: string; candidates: number; missing: number; included: number } | null {
+  // name what else was lost when it does not all fit (only useful with recall)
+  index = false,
+): { text: string; candidates: number; missing: number; included: number; indexed: number } | null {
   const hits = collect(dropped);
   const n = Math.max(1, dropped.length);
   const missing = [...hits.values()]
@@ -327,9 +329,35 @@ export function specificsBlock(
     `${MARKER} Exact details the summary above dropped, verbatim from the replaced history. ` +
     'For reference only: newer instructions win, and do not redo actions that were already completed.' +
     (recall ? ' Anything else from before is searchable, verbatim, with the amnesia recall tool.' : '');
+  let pick = fill(top, head.length, budgetChars);
+  const left = () => top.filter((h) => !pick.chosen.some((c) => within(h.s, c)));
+  let indexLine: { text: string; named: number } | null = null;
+  // more is missing than fits: part of the budget names what else was lost, so
+  // the agent knows what to look up instead of not knowing it lost anything
+  if (index && left().length > 0) {
+    pick = fill(top, head.length, Math.floor(budgetChars * VALUE_SHARE));
+    indexLine = lossIndex(left(), budgetChars - pick.used - 1);
+  }
+  if (pick.lines.length === 0 && !indexLine) return null;
+  return {
+    text: [head, ...pick.lines.map((l) => l.text), ...(indexLine ? [indexLine.text] : [])].join('\n'),
+    candidates: hits.size,
+    missing: missing.length,
+    included: pick.chosen.length,
+    indexed: indexLine?.named ?? 0,
+  };
+}
+
+// with the index on and more missing than fits, values get this share of the budget
+const VALUE_SHARE = 0.6;
+export const INDEX_LEAD = 'Also dropped (look up with recall before relying on them): ';
+
+type Ranked = Hit & { score: number };
+
+function fill(top: readonly Ranked[], start: number, budgetChars: number) {
   const lines: { owner?: string; s?: string; text: string }[] = [];
   const chosen: string[] = [];
-  let used = head.length;
+  let used = start;
   for (const h of top) {
     if (chosen.some((c) => within(h.s, c))) continue;
     // settings that share an owner ("For acme-billing, ...") share one line:
@@ -362,11 +390,78 @@ export function specificsBlock(
     chosen.push(h.s);
     used += line.length + 1 - refund;
   }
-  if (lines.length === 0) return null;
-  return {
-    text: [head, ...lines.map((l) => l.text)].join('\n'),
-    candidates: hits.size,
-    missing: missing.length,
-    included: chosen.length,
-  };
+  return { lines, chosen, used };
+}
+
+// a name is its own search term; a value is named by what it is
+const NAME_KINDS = new Set<Kind>(['path', 'file', 'env', 'flag', 'dotted', 'ident', 'branch']);
+const VERB_END = /\s+(?:is|was|are|were|=)\s*$/i;
+
+// what a dropped detail is, without its value: "staging port" (owner acme-billing),
+// "settlement_retry_timeout_ms", "release to commit"
+export function labelOf(h: Pick<Hit, 's' | 'kind' | 'probe' | 'context'>): { owner?: string; what: string } | null {
+  const value = h.probe?.[h.probe.length - 1];
+  const subject = (clause: string) =>
+    (value ? clause.replace(value, '') : clause)
+      .replace(/^(?:the|our|its|their|my|your)\s+/i, '')
+      .replace(VERB_END, '')
+      .replace(/[\s,;:]+$/, '')
+      .trim()
+      .slice(0, 50);
+  if (h.kind === 'setting') {
+    const own = h.s.match(OWNER);
+    if (own?.[1] && own[2]) return { owner: own[1].replace(/^(?:For|In|On|At) /, ''), what: subject(own[2]) || 'a value' };
+    const key = h.s.match(/^(\S+) = /);
+    if (key?.[1]) return { what: key[1] };
+    const what = subject(h.s);
+    return what.length >= 3 ? { what } : null;
+  }
+  if (NAME_KINDS.has(h.kind)) {
+    // a piece of a URL (status.example out of https://status.example-ledger.io/...) names nothing
+    if ([...h.context.matchAll(/\S*:\/\/\S+/g)].some((m) => m[0].includes(h.s))) return null;
+    return { what: h.s };
+  }
+  const at = h.context.indexOf(h.s);
+  const before = (at >= 0 ? h.context.slice(0, at) : '')
+    .replace(/[`"'*()[\]{}=,;:|>#-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(-4)
+    .join(' ');
+  return before.length >= 3 ? { what: before } : null;
+}
+
+// one line naming what else was lost, grouped by owner, until the budget runs out
+function lossIndex(hits: readonly Ranked[], budget: number): { text: string; named: number } | null {
+  const groups: { owner?: string; whats: string[] }[] = [];
+  const seen = new Set<string>();
+  for (const h of hits) {
+    const l = labelOf(h);
+    if (!l) continue;
+    const key = `${l.owner ?? ''}\u0000${l.what.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const g = l.owner ? groups.find((x) => x.owner === l.owner) : undefined;
+    if (g) g.whats.push(l.what);
+    else groups.push({ owner: l.owner, whats: [l.what] });
+  }
+  const total = groups.reduce((n, g) => n + g.whats.length, 0);
+  const render = (g: { owner?: string; whats: string[] }) => (g.owner ? `${g.owner} (${g.whats.join(', ')})` : g.whats[0] ?? '');
+  // ungrouped labels are one entry each
+  const entries: { owner?: string; whats: string[] }[] = groups.flatMap((g) => (g.owner ? [g] : g.whats.map((w) => ({ whats: [w] }))));
+  const out: string[] = [];
+  let named = 0;
+  let used = INDEX_LEAD.length + 24;
+  for (const e of entries) {
+    // an owner whose attribute list does not fit is still named on its own
+    const t = [render(e), e.owner].find((x) => x && used + x.length + 3 <= budget);
+    if (!t) continue;
+    out.push(t);
+    named += e.whats.length;
+    used += t.length + 3;
+  }
+  if (out.length === 0) return null;
+  const more = total - named;
+  return { text: INDEX_LEAD + out.join(' · ') + (more > 0 ? ` · and ${more} more` : '') + '.', named };
 }

@@ -126,7 +126,7 @@ if (args.includes("--report")) {
     md.push(`### ${task === "env" ? "Named slots (env files)" : "Unnamed details (deploy script)"}`, "",
       `| arm | runs | ${verdicts.join(" | ")} | transcript searches | recall calls | tool calls | task spend |`,
       `|---|---|${verdicts.map(() => "---|").join("")}---|---|---|---|`);
-    for (const arm of ["A", "C"]) {
+    for (const arm of ["A", "C", "V", "I"]) {
       const rs = runs.filter((r) => r.arm === arm && (r.task ?? "env") === task);
       if (!rs.length) continue;
       const n = (v) => rs.reduce((s, r) => s + r.slots.filter((x) => x.verdict === v).length, 0);
@@ -145,11 +145,24 @@ if (args.includes("--report")) {
 const seed = JSON.parse(readFileSync(join(OUT, "seed.json"), "utf8"));
 let spent = 0;
 const costOf = new Map([[seed.sessionId, seed.cost ?? 0]]);
-function claude(extra, withPlugin, label) {
+// arm -> plugin options (null: no plugin). V and I: a block too small for the
+// lost details (1,000 chars), values only vs values plus the loss index
+const ARMS = {
+  A: { label: "Claude Code alone", plugin: null },
+  C: { label: "with amnesia", plugin: {} },
+  V: { label: "amnesia, 1,000 chars, values only", plugin: { budgetChars: 1000, lossIndex: false } },
+  I: { label: "amnesia, 1,000 chars, values + loss index", plugin: { budgetChars: 1000, lossIndex: true } },
+};
+const ARM_LIST = String(opt("arms", "A,C")).split(",");
+const TASKS = String(opt("tasks", "env,deploy")).split(",");
+for (const a of ARM_LIST) if (!ARMS[a]) throw new Error(`unknown arm ${a}`);
+function claude(extra, arm, label) {
   if (spent >= MAX) throw new Error(`spend cap $${MAX} reached`);
+  const plugin = ARMS[arm].plugin;
+  const settings = { autoMemoryEnabled: false, ...(plugin ? { pluginConfigs: { "amnesia@inline": { options: plugin } } } : {}) };
   const flags = ["-p", ...extra, "--output-format", "json", "--model", "sonnet", "--setting-sources", "project,local", "--strict-mcp-config",
-    "--settings", JSON.stringify({ autoMemoryEnabled: false })];
-  if (withPlugin) flags.push("--plugin-dir", PLUGIN);
+    "--settings", JSON.stringify(settings)];
+  if (plugin) flags.push("--plugin-dir", PLUGIN);
   let raw = "";
   try {
     raw = execFileSync("claude", flags, { cwd: PROJ, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"], timeout: 900000 });
@@ -175,37 +188,38 @@ function afterBoundary(id) {
   const b = rows.map((o, i) => (o.subtype === "compact_boundary" ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
   const uses = rows.slice(b + 1).flatMap((o) => (o.type === "assistant" && Array.isArray(o.message?.content) ? o.message.content : [])).filter((x) => x?.type === "tool_use");
   const block = rows.slice(b + 1).some((o) => JSON.stringify(o.message?.content ?? "").includes("[amnesia] Exact details"));
-  return { uses, block };
+  const index = rows.slice(b + 1).some((o) => JSON.stringify(o.message?.content ?? "").includes("Also dropped (look up with recall"));
+  return { uses, block, index };
 }
 
 mkdirSync(RUNS, { recursive: true });
 const tools = ["--disallowedTools", "Bash,PowerShell,WebFetch,WebSearch,Task,NotebookEdit", "--allowedTools", "Read,Grep,Glob,Write,Edit,mcp__amnesia__recall"];
 for (let rep = START; rep < START + REPS; rep++) {
-  for (const arm of ["A", "C"]) {
+  for (const arm of ARM_LIST) {
     const name = `${arm}${rep}`;
     if (existsSync(join(RUNS, `${name}-deploy.json`))) { console.log(`${name}: done already`); continue; }
-    console.log(`${name} (${arm === "A" ? "Claude Code alone" : "with amnesia"})`);
-    const c = claude([`/compact ${LOSSY}`, "--resume", seed.sessionId, "--fork-session"], arm === "C", "compact");
+    console.log(`${name} (${ARMS[arm].label})`);
+    const c = claude([`/compact ${LOSSY}`, "--resume", seed.sessionId, "--fork-session"], arm, "compact");
     // one compaction, two tasks: the env task in a fork first (a fork leaves the
     // compacted session as it was), then the deploy task on the session itself,
     // so its recall archive is the one the compaction filled
     const runTask = (task, prompt, extra, file) => {
       rmSync(join(PROJ, "release"), { recursive: true, force: true });
-      const p = claude([prompt, ...extra, ...tools], arm === "C", task);
+      const p = claude([prompt, ...extra, ...tools], arm, task);
       const dest = join(RUNS, file);
       rmSync(dest, { recursive: true, force: true });
       if (existsSync(join(PROJ, "release"))) renameSync(join(PROJ, "release"), dest);
       else mkdirSync(dest);
-      const { uses, block } = afterBoundary(p.session_id);
+      const { uses, block, index } = afterBoundary(p.session_id);
       const transcriptSearches = uses.filter((u) => /\.claude|\.jsonl|projects[\\/]/.test(JSON.stringify(u.input ?? {}))).length;
       const slots = task === "env" ? score(dest) : scoreDeploy(dest);
       const tally = Object.fromEntries(["correct", "placeholder", "wrong", "missing", "absent"].map((v) => [v, slots.filter((s) => s.verdict === v).length]).filter(([, n]) => n));
-      const run = { arm, rep, task, session: p.session_id, block, compactCost: c.cost, taskCost: p.cost, toolCalls: uses.length, transcriptSearches,
+      const run = { arm, rep, task, session: p.session_id, block, index, compactCost: c.cost, taskCost: p.cost, toolCalls: uses.length, transcriptSearches,
         recallCalls: uses.filter((u) => String(u.name).includes("recall")).length, reply: String(p.result ?? "").slice(0, 600), tally, slots };
       writeFileSync(join(RUNS, `${file}.json`), JSON.stringify(run, null, 2));
       console.log(`  ${task}: ${JSON.stringify(tally)}; block ${block}; tools ${uses.length} (transcript ${transcriptSearches}, recall ${run.recallCalls})`);
     };
-    if (!existsSync(join(RUNS, `${name}.json`))) runTask("env", TASK, ["--resume", c.session_id, "--fork-session"], name);
+    if (TASKS.includes("env") && !existsSync(join(RUNS, `${name}.json`))) runTask("env", TASK, ["--resume", c.session_id, "--fork-session"], name);
     runTask("deploy", DEPLOY, ["--resume", c.session_id], `${name}-deploy`);
   }
 }
