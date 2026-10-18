@@ -53,7 +53,7 @@ test('leaves out strings the summary already has', async ($, on) => {
   expect(at(r.messages, 0).text).toBe(full.text);
 });
 
-test('precompute passes through untouched', async ($, on) => {
+test('precompute gets no block: its result is kept for the next compaction', async ($, on) => {
   on('session.compact', core(SUMMARY, HISTORY.slice(-1)));
   const r = await $.session.compact({ trigger: 'precompute', messages: HISTORY });
   if (r.skip !== undefined) throw new Error('skipped');

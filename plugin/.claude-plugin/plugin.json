@@ -21,6 +21,12 @@
       "description": "Archive every tool output and what each compaction drops (under <config>/amnesia/archive/<session>/), and give the agent a recall tool to search them.",
       "default": true
     },
+    "steer": {
+      "type": "boolean",
+      "title": "Ask the summary to keep exact details",
+      "description": "Before each compaction, hand Claude Code's summarizer a short list of exact values from the conversation (ports, commits, versions, settings) to keep verbatim. Your own /compact instructions come first and are kept whole.",
+      "default": true
+    },
     "lossIndex": {
       "type": "boolean",
       "title": "Name what didn't fit",

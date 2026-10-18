@@ -31,6 +31,7 @@ const PLUGIN = resolve(HERE, "..", "plugin");
 const REPS = Number(opt("reps", 1));
 const START = Number(opt("start", 0));
 const MAX = Number(opt("max-spend", 12));
+const PLAIN = args.includes("--plain");
 const LOSSY = "Keep this summary to five sentences. Do not list identifiers, values, versions, ports, hashes, names or file contents.";
 
 const facts = JSON.parse(readFileSync(join(OUT, "facts.json"), "utf8"));
@@ -126,12 +127,23 @@ if (args.includes("--report")) {
     md.push(`### ${task === "env" ? "Named slots (env files)" : "Unnamed details (deploy script)"}`, "",
       `| arm | runs | ${verdicts.join(" | ")} | transcript searches | recall calls | tool calls | task spend |`,
       `|---|---|${verdicts.map(() => "---|").join("")}---|---|---|---|`);
-    for (const arm of ["A", "C", "V", "I"]) {
+    for (const arm of ["A", "C", "V", "I", "B", "S"]) {
       const rs = runs.filter((r) => r.arm === arm && (r.task ?? "env") === task);
       if (!rs.length) continue;
       const n = (v) => rs.reduce((s, r) => s + r.slots.filter((x) => x.verdict === v).length, 0);
       const sum = (k) => rs.reduce((s, r) => s + (r[k] ?? 0), 0);
       md.push(`| ${arm} | ${rs.length} | ${verdicts.map((v) => (v === "correct" ? `${n(v)}/${rs.reduce((s, r) => s + r.slots.length, 0)}` : n(v))).join(" | ")} | ${sum("transcriptSearches")} | ${sum("recallCalls")} | ${sum("toolCalls")} | $${sum("taskCost").toFixed(2)} |`);
+    }
+    md.push("");
+  }
+  const plain = runs.filter((r) => r.plain && r.task === "deploy");
+  if (plain.length) {
+    md.push("### Plain /compact: seeded facts the summary itself kept (of 100)", "", "| arm | runs | per run | mean | summary chars (mean) |", "|---|---|---|---|---|");
+    for (const arm of ["B", "S"]) {
+      const rs = plain.filter((r) => r.arm === arm);
+      if (!rs.length) continue;
+      const mean = (k) => rs.reduce((s, r) => s + r[k], 0) / rs.length;
+      md.push(`| ${arm} | ${rs.length} | ${rs.map((r) => r.summaryFacts).join(", ")} | ${mean("summaryFacts").toFixed(1)} | ${Math.round(mean("summaryChars"))} |`);
     }
     md.push("");
   }
@@ -152,6 +164,9 @@ const ARMS = {
   C: { label: "with amnesia", plugin: {} },
   V: { label: "amnesia, 1,000 chars, values only", plugin: { budgetChars: 1000, lossIndex: false } },
   I: { label: "amnesia, 1,000 chars, values + loss index", plugin: { budgetChars: 1000, lossIndex: true } },
+  // steering: the summarizer is handed a must-keep list (B: off, S: on); run with --plain
+  B: { label: "amnesia, block only (no steering)", plugin: { steer: false } },
+  S: { label: "amnesia, steered summary + block", plugin: { steer: true } },
 };
 const ARM_LIST = String(opt("arms", "A,C")).split(",");
 const TASKS = String(opt("tasks", "env,deploy")).split(",");
@@ -189,7 +204,11 @@ function afterBoundary(id) {
   const uses = rows.slice(b + 1).flatMap((o) => (o.type === "assistant" && Array.isArray(o.message?.content) ? o.message.content : [])).filter((x) => x?.type === "tool_use");
   const block = rows.slice(b + 1).some((o) => JSON.stringify(o.message?.content ?? "").includes("[amnesia] Exact details"));
   const index = rows.slice(b + 1).some((o) => JSON.stringify(o.message?.content ?? "").includes("Also dropped (look up with recall"));
-  return { uses, block, index };
+  // the summary itself: how many of the seeded facts it kept
+  const sumRow = rows.slice(b + 1).find((o) => o.isCompactSummary);
+  const summary = typeof sumRow?.message?.content === "string" ? sumRow.message.content : (sumRow?.message?.content ?? []).map((x) => x.text ?? "").join("");
+  const summaryFacts = facts.filter((x) => summary.includes(x.a)).length;
+  return { uses, block, index, summaryFacts, summaryChars: summary.length };
 }
 
 mkdirSync(RUNS, { recursive: true });
@@ -199,7 +218,8 @@ for (let rep = START; rep < START + REPS; rep++) {
     const name = `${arm}${rep}`;
     if (existsSync(join(RUNS, `${name}-deploy.json`))) { console.log(`${name}: done already`); continue; }
     console.log(`${name} (${ARMS[arm].label})`);
-    const c = claude([`/compact ${LOSSY}`, "--resume", seed.sessionId, "--fork-session"], arm, "compact");
+    // --plain: a bare /compact, no instruction to lose anything
+    const c = claude([PLAIN ? "/compact" : `/compact ${LOSSY}`, "--resume", seed.sessionId, "--fork-session"], arm, "compact");
     // one compaction, two tasks: the env task in a fork first (a fork leaves the
     // compacted session as it was), then the deploy task on the session itself,
     // so its recall archive is the one the compaction filled
@@ -210,11 +230,11 @@ for (let rep = START; rep < START + REPS; rep++) {
       rmSync(dest, { recursive: true, force: true });
       if (existsSync(join(PROJ, "release"))) renameSync(join(PROJ, "release"), dest);
       else mkdirSync(dest);
-      const { uses, block, index } = afterBoundary(p.session_id);
+      const { uses, block, index, summaryFacts, summaryChars } = afterBoundary(p.session_id);
       const transcriptSearches = uses.filter((u) => /\.claude|\.jsonl|projects[\\/]/.test(JSON.stringify(u.input ?? {}))).length;
       const slots = task === "env" ? score(dest) : scoreDeploy(dest);
       const tally = Object.fromEntries(["correct", "placeholder", "wrong", "missing", "absent"].map((v) => [v, slots.filter((s) => s.verdict === v).length]).filter(([, n]) => n));
-      const run = { arm, rep, task, session: p.session_id, block, index, compactCost: c.cost, taskCost: p.cost, toolCalls: uses.length, transcriptSearches,
+      const run = { arm, rep, task, plain: PLAIN, summaryFacts, summaryChars, session: p.session_id, block, index, compactCost: c.cost, taskCost: p.cost, toolCalls: uses.length, transcriptSearches,
         recallCalls: uses.filter((u) => String(u.name).includes("recall")).length, reply: String(p.result ?? "").slice(0, 600), tally, slots };
       writeFileSync(join(RUNS, `${file}.json`), JSON.stringify(run, null, 2));
       console.log(`  ${task}: ${JSON.stringify(tally)}; block ${block}; tools ${uses.length} (transcript ${transcriptSearches}, recall ${run.recallCalls})`);

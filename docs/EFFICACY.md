@@ -416,6 +416,34 @@ release's own. Two arms, both with recall on:
 So the index is on by default whenever recall is on (`lossIndex`). Limits:
 the same as above, plus 3 runs per arm. Spend: $4.28.
 
+### Steering the summary (branch feat/steer): no measurable gain at 190k
+
+The plugin can hand Claude Code's summarizer a must-keep list before it
+writes, through the hook's `instructions`. Claude Code appends that list
+verbatim after its own prompt. The list holds about 2,000 chars of the
+top-ranked exact values, and it runs on `precompute` too (see
+docs/MECHANISMS.md). Tested on the same seeded session with a **plain
+`/compact`**, no lossy instruction, so whatever loss happens is the
+summarizer's own. B is the plugin with steering off, S with it on, 3 runs
+each, all on the same summary prompt arm.
+
+| arm | seeded facts the summary kept (of 100) | deploy script correct |
+|---|---|---|
+| block only | 21, 100, 100 (mean 74) | 25/30 |
+| steered + block | 100, 51, 100 (mean 84) | 28/30 |
+
+- **Unforced loss here is all or nothing.** Either the summary quotes every
+  user message (100/100), or it condenses them and keeps 21–51. Steering
+  didn't stop the condensed mode (one steered run kept 51).
+- **The differences are within noise** at 3 runs. The first steered run
+  (100 vs 21) looked like a big win; the next two didn't hold it up.
+- **Cost:** steered summaries ran about 30% longer (13.4k vs 10.2k chars), so
+  roughly 800 more tokens stay in context after each compaction.
+
+Not shown to help at this size. Where it might help is where summaries
+lose the most, ~1M-token sessions, which this bench can't afford to seed.
+Spend: $4.58.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

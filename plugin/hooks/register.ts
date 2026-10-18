@@ -1,11 +1,15 @@
 import type { EngineInterface, Register } from 'claude-code';
-import { specificsBlock, type Msg } from './specifics.ts';
+import { specificsBlock, steerText, withSteer, type Msg } from './specifics.ts';
 import { RECALL_DESCRIPTION, archivable, droppedFiles, search, toolRecord, type Rec } from './recall.ts';
 
 // userConfig budgetChars (plugin.json declares the default and range)
 const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 6000);
 
 const keyOf = (m: Msg) => m.handle ?? `${m.role}\u0000${m.text}`;
+
+// the must-keep list handed to the summarizer: short, since some summary
+// prompts cap the whole summary at 2,000 words
+const STEER_CHARS = 2000;
 
 const RECALL = 'recall';
 // the newest archive files a search reads; older ones stay on disk
@@ -46,6 +50,10 @@ export const register: Register = (on, options) => {
   const archive = options?.recall !== false;
   // naming what did not fit only helps when the agent can look it up
   const index = archive && options?.lossIndex !== false;
+  const steer = options?.steer !== false;
+  // the list a precompute was steered with: its summary is swapped in at the
+  // next compaction, so that compaction is told the same thing
+  let precomputeSteer: string | undefined;
 
   on('session.start', async ($, e, next) => {
     const r = await next(e);
@@ -92,9 +100,24 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e));
 
   on('session.compact', async ($, e, next) => {
-    if (e.trigger === 'precompute' || e.agentId !== undefined) return next(e);
+    if (e.agentId !== undefined) return next(e);
 
-    const done = await next(e);
+    // ask the summarizer to keep the exact details itself; the block below then
+    // carries only what it still dropped
+    let list: string | undefined;
+    if (steer) {
+      try {
+        list = (e.trigger !== 'precompute' ? precomputeSteer : undefined) ?? steerText(e.messages, STEER_CHARS)?.text;
+      } catch {}
+    }
+    const steered = list ? { ...e, instructions: withSteer(e.instructions, list) } : e;
+    if (e.trigger === 'precompute') {
+      precomputeSteer = list;
+      return next(steered);
+    }
+    precomputeSteer = undefined;
+
+    const done = await next(steered);
     if (done.skip !== undefined) return done;
 
     const inKeys = new Set(e.messages.map(keyOf));

@@ -465,3 +465,38 @@ function lossIndex(hits: readonly Ranked[], budget: number): { text: string; nam
   const more = total - named;
   return { text: INDEX_LEAD + out.join(' · ') + (more > 0 ? ` · and ${more} more` : '') + '.', named };
 }
+
+// ---- steering: what the summarizer is asked to keep ----------------------
+
+export const STEER_LEAD =
+  'amnesia: this conversation holds these exact details. Where any still matters for the work, keep it in the summary ' +
+  'verbatim, with what it belongs to (they are hard to recover once dropped):';
+// what a summarizer can usefully be asked to copy: values, not names it can re-read
+const STEER_KINDS = new Set<Kind>(['setting', 'url', 'hash', 'version', 'code', 'handle', 'env']);
+
+// a short must-keep list for the summarizer, from the messages about to be compacted.
+// Settings are listed as written; other values with the words that say what they are.
+export function steerText(messages: readonly Msg[], budgetChars: number): { text: string; items: number } | null {
+  const n = Math.max(1, messages.length);
+  const ranked = [...collect(messages).values()]
+    .filter((h) => h.inOwn && STEER_KINDS.has(h.kind))
+    .map((h) => ({ ...h, score: scoreOf(h, n) }))
+    .sort((a, b) => b.score - a.score);
+  const lines: string[] = [];
+  const chosen: string[] = [];
+  let used = STEER_LEAD.length;
+  for (const h of ranked) {
+    if (chosen.some((c) => within(h.s, c))) continue;
+    const what = h.kind === 'setting' ? null : labelOf(h)?.what;
+    const line = `- ${what ? `${what}: ${h.s}` : h.s}`;
+    if (used + line.length + 1 > budgetChars) continue;
+    lines.push(line);
+    chosen.push(h.s);
+    used += line.length + 1;
+  }
+  return lines.length ? { text: [STEER_LEAD, ...lines].join('\n'), items: lines.length } : null;
+}
+
+// the person's own /compact instructions come first and stay whole
+export const withSteer = (instructions: string | undefined, steer: string) =>
+  instructions && instructions.trim() ? `${instructions.trim()}\n\n${steer}` : steer;
