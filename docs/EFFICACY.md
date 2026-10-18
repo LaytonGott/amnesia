@@ -479,6 +479,27 @@ staging port and ticket, kestrel-audit's bucket and commit). 3 runs per arm.
 
 Spend: $4.29.
 
+**Tuned on real sessions (no model calls).** The first live use was too
+eager: routine prompts like "merge it and push" got old release messages
+attached. `bench/jit-audit.mts` rebuilds the archive of each real
+compaction, 63 of them, and replays the 1,625 prompts actually sent
+afterwards.
+
+| rule | real prompts that carry messages | routine prompts in this session (of 8) | bench owners prompt |
+|---|---|---|---|
+| two distinctive words, one rare | 73% | 4 attach | 4/4 values |
+| + the rare one must be a name (`acme-billing`, `v0.17.0`, `retry_ms`) | 42% | — | — |
+| + a name in at most 3 replaced messages | 22% | — | — |
+| + match only what a message said, not the tool calls archived with it | **23%** | **0 attach** | **4/4 values** |
+
+- **The 23% that still attach** are mostly the intended kind. A prompt that
+  names a specific case gets the message that first specified it ("Re-run
+  the failed `configunits` v7 / `async_webhooks` calibration" brings back
+  that calibration's spec). Standing rules also come back for a related
+  task.
+- **One loss:** the vague ledger-holds prompt now attaches nothing, not
+  even the release commit.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

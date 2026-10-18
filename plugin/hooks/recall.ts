@@ -214,15 +214,32 @@ function windowOf(text: string, terms: readonly string[], width: number): string
   return (a > 0 ? '…' : '') + text.slice(a, b).replace(/\s+/g, ' ').trim() + (b < text.length ? '…' : '');
 }
 
+// what a replaced message said itself, without the tool calls archived after it
+// ("[Bash] command: ..."): lost details are stated in prose, and tool output
+// stays reachable through the recall tool
+const TOOL_LINE = /(^|\n)\[[A-Za-z_][\w:.-]*\] /;
+const proseOf = (t: string) => {
+  const m = TOOL_LINE.exec(t);
+  return m ? t.slice(0, m.index) : t;
+};
+
+// a name rather than a word: acme-billing, src/a.ts, OPS-77412, v0.17.0, retry_ms
+const nameLike = (t: string) => /[a-z]/.test(t) && /[\d._/@:-]/.test(t);
+
 // The records (messages a compaction replaced) a prompt shares rare words with.
-// Strict: at least two distinctive words in common, one of them rare across the
-// archive; words in many records say nothing about which one is meant.
+// Strict: at least two distinctive words in common, and one of them a rare
+// name (plain words like "push" or "tests" never attach anything on their
+// own: on real sessions they matched 73% of prompts); words in many records
+// say nothing about which one is meant.
 export function promptRecall(
   records: readonly Rec[],
   prompt: string,
   { maxSnippets = 3, width = 700, skip = new Set<string>() }: { maxSnippets?: number; width?: number; skip?: ReadonlySet<string> } = {},
 ): { text: string; keys: string[] } | null {
-  const pool = records.filter((r) => r.kind === 'dropped');
+  const pool = records
+    .filter((r) => r.kind === 'dropped')
+    .map((r) => ({ ...r, text: proseOf(r.text) }))
+    .filter((r) => r.text.trim().length > 0);
   const n = pool.length;
   if (n === 0) return null;
   const lows = pool.map((r) => r.text.toLowerCase());
@@ -230,14 +247,16 @@ export function promptRecall(
     .map((t) => ({ t, df: lows.filter((l) => l.includes(t)).length }))
     .filter((x) => x.df > 0 && x.df <= Math.max(2, Math.floor(n * 0.15)));
   if (terms.length < 2) return null;
-  const rare = Math.max(1, Math.floor(n * 0.05));
+  // rare: in at most 3 replaced messages (and 5% of a small archive); a name that
+  // recurs across a project points at no message in particular
+  const rare = Math.min(3, Math.max(1, Math.floor(n * 0.05)));
   const idf = new Map(terms.map((x) => [x.t, Math.log((n + 1) / (x.df + 0.5))]));
   const scored = pool
     .map((r, i) => {
       const matched = terms.filter((x) => lows[i]!.includes(x.t));
       return { r, matched, score: matched.reduce((s, x) => s + (idf.get(x.t) ?? 0), 0) };
     })
-    .filter((x) => x.matched.length >= 2 && x.matched.some((m) => m.df <= rare) && !skip.has(recKey(x.r)))
+    .filter((x) => x.matched.length >= 2 && x.matched.some((m) => m.df <= rare && nameLike(m.t)) && !skip.has(recKey(x.r)))
     .sort((a, b) => b.score - a.score || b.r.at - a.r.at)
     .slice(0, maxSnippets);
   if (scored.length === 0) return null;
