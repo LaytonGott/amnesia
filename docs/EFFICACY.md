@@ -610,6 +610,22 @@ compaction's later prompts against its rebuilt archive:
   used again afterwards and that the 12,000-char block didn't already
   carry.
 
+**Tried on the same ground truth and rejected:**
+- **Stricter just-in-time anchors** (no hyphen-only names): fewer prompts
+  got attachments (17.8% vs 22.7%), and fewer of those held a needed value
+  (61.7% vs 66.9%). Hyphenated service names are good anchors.
+- **A bonus for paths the person typed:** paths needed again went from 5%
+  to 9% carried, but URLs fell from 42% to 36% and overall coverage dipped.
+- **Recall at resume time:** after an auto-compaction, Claude Code resumes
+  with no prompt of the person's. So the archive was queried with the end
+  of the summary and the kept messages, and up to 3 messages attached.
+  62% of compactions got one holding a needed value. But the same
+  characters given to the block carried 709 needed values, against 110.
+
+**Kept, though neutral:** "set `key` to value" (also change, bump, raise,
+lower, update and pin) is now extracted as `key = value`. Real sessions
+rarely phrase settings that way, so it moved nothing.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
