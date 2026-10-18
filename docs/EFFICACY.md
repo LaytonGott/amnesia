@@ -484,6 +484,60 @@ with results attached to the Write/Edit result. Replayed offline on the
 
 With no bench showing a gain, that context cost isn't justified.
 
+## Ranking learned from what real sessions needed again
+
+Until now the block's ranking was hand-tuned, and it was judged by eye or
+on synthetic sessions. Real sessions hold a ground truth: after a
+compaction, which of the dropped details did the person or the agent use
+again? `bench/needed-later.mts` rebuilds every real compaction on the test
+machine (69 with work after them) and counts a dropped detail (missing
+from the summary and the kept messages) as needed when its value shows up
+later in a prompt, the agent's text, or a tool call's input. Tool output
+doesn't count, because re-reading a file isn't memory. 39,321 dropped
+details were needed again; the hand-tuned block carried 14.6% of them.
+
+What predicts reuse, from the same data:
+
+| signal | used again |
+|---|---|
+| seen 10+ times / once | 34% / 9% |
+| in the last 10% of what was replaced / the first quarter | 28.5% / 8% |
+| a setting (`key = value`) | 34% |
+| hashes / URLs / paths / versions | 1.9% / 3.9% / 5.6% / 5.4% |
+| 4–11 characters / 30+ | 20.6% / 3.3% |
+
+The hand-tuned ranking had it partly backwards: hashes, URLs, paths and
+versions sat in the top tiers.
+
+**The learned ranking.** A log-odds weight per signal (kind, who wrote it,
+recency, count, length, seen only in file reads), fitted to the strictest
+label: details the person later had to say again.
+- **Protected kinds:** hashes, URLs, settings and ticket codes keep a fixed
+  bonus. They're rarely repeated, but they can't be re-derived when they
+  are.
+- **Cap:** no single kind takes more than 12 lines.
+- **URL pieces:** a domain or path fragment inside a URL is no longer a
+  detail of its own.
+
+Fitted on half the sessions and measured on the other half, both ways:
+
+| measured on | hand-tuned | learned |
+|---|---|---|
+| the person said it again later | 41.5% / 39.3% | **49.0% / 45.0%** |
+| used again at all | 15.5% / 13.9% | **22.0% / 21.5%** |
+| hash/URL lines kept | 352 / 617 | 363 / 671 |
+
+On all 69 compactions, with the shipped weights: **22.5% of needed-later
+details carried, up from 14.6%**, at the same 6,000 chars, with line
+precision unchanged (58.1%). The synthetic A/B replays are unchanged: all
+80 and all 788 dropped facts are still carried, bound to their owners.
+
+**The first version flooded one real block** (a session writing semver
+tests) with fixture versions and dropped its commits. That's why versions
+lost their protection and the per-kind cap exists. On that compaction the
+block now carries 4 more commits, the test files and the flags in use,
+instead of about 20 research links and version strings.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

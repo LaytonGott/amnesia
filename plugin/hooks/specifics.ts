@@ -241,6 +241,9 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
       // one occurrence matched by two patterns (report_9.txt: file and dotted) counts once
       const here = new Set<string>();
       const own = OWN.has(from);
+      // a URL is one detail: its domain or path pieces (pypi.org, mutator.io) are not more
+      const urls = [...capped.matchAll(/[a-z][a-z0-9+.-]*:\/\/[^\s)>"'`\]]+/g)].map((u) => [u.index ?? 0, (u.index ?? 0) + u[0].length] as const);
+      const inUrl = (at: number) => urls.some(([a, b]) => at > a && at < b);
       for (const pat of PATTERNS) {
         if (pat.own && !own) continue;
         if (pat.not?.includes(from)) continue;
@@ -255,6 +258,7 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
           const kind = it.kind ?? (own ? undefined : pat.toolKind) ?? pat.kind;
           if (s.length < (pat.min ?? 4) || s.length > 200) continue;
           if (re === PATH && !looksLikePath(s)) continue;
+          if (pat.kind !== 'url' && urls.length && inUrl(match.index ?? 0)) continue;
           const h = hits.get(s);
           const at = `${match.index}|${s}`;
           if (h && here.has(at)) {
@@ -284,17 +288,36 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
   return hits;
 }
 
+// Learned from 68 real compactions (bench/needed-later.mts): log-odds, per
+// feature, that a dropped detail is one the person later had to say again.
+// Settings, the person's own words, things said often and said late come
+// back; long strings, paths, files and things only tools printed do not.
+const LEARNED: Record<string, number> = {
+  'best:0': -0.46, 'best:1': -0.38, 'best:2': -0.03, 'best:3': 0.21, 'best:4': 1.87,
+  'cnt:0': 0.02, 'cnt:1': -0.16, 'cnt:2': -0.15, 'cnt:3': 0.46,
+  'kind:branch': -0.8, 'kind:code': -0.27, 'kind:dotted': 0.64, 'kind:env': -1.15, 'kind:file': -1.51,
+  'kind:flag': -1.13, 'kind:handle': -0.66, 'kind:hash': -2.12, 'kind:ident': -0.45, 'kind:path': -2.04,
+  'kind:quoted': 0.16, 'kind:setting': 2.86, 'kind:url': -2.07, 'kind:version': -1.23,
+  'len:0': 0.77, 'len:1': -0.75, 'len:2': -1.71,
+  'read:false': 0.06, 'read:true': -0.46,
+  'rec:0': -0.33, 'rec:1': -0.12, 'rec:2': 0.1, 'rec:3': 0.08, 'rec:4': 0.51,
+};
+// what cannot be re-derived once lost is rarely repeated but costly when it is:
+// it keeps its place (held out, this kept as many such lines as before)
+const IRREPLACEABLE = new Set<Kind>(['hash', 'url', 'setting', 'code']);
+
 export function scoreOf(h: Hit, n: number): number {
-  return (
-    4 * h.best +
-    2 * TIER[h.kind] +
-    Math.log2(1 + h.count) +
-    (3 * h.last) / n -
-    (h.onlyRead ? 8 : 0) -
-    (h.best <= WEIGHT.output ? 3 : 0) -
-    // a file path only ever passed to or printed by a tool can be found again
-    (h.kind === 'path' && !h.inOwn ? 12 : 0)
-  );
+  const v = h.probe ? h.probe[h.probe.length - 1] ?? h.s : h.s;
+  const at = h.last / n;
+  const features = [
+    `kind:${h.kind}`,
+    `best:${h.best}`,
+    `rec:${at >= 0.9 ? 4 : at >= 0.75 ? 3 : at >= 0.5 ? 2 : at >= 0.25 ? 1 : 0}`,
+    `cnt:${h.count >= 10 ? 3 : h.count >= 4 ? 2 : h.count >= 2 ? 1 : 0}`,
+    `len:${v.length >= 30 ? 2 : v.length >= 12 ? 1 : 0}`,
+    `read:${h.onlyRead}`,
+  ];
+  return features.reduce((s, f) => s + (LEARNED[f] ?? 0), 0) + (IRREPLACEABLE.has(h.kind) ? 4 : 0);
 }
 
 const kept = (h: Hit, summary: string) => (h.probe ?? [h.s]).every((p) => summary.includes(p));
@@ -354,12 +377,18 @@ export const INDEX_LEAD = 'Also dropped (look up with recall before relying on t
 
 type Ranked = Hit & { score: number };
 
+// no one kind takes over a block: a burst of test-fixture versions or a page of
+// source links would otherwise crowd out the commits and settings around them
+const KIND_CAP = 12;
+
 function fill(top: readonly Ranked[], start: number, budgetChars: number) {
   const lines: { owner?: string; s?: string; text: string }[] = [];
   const chosen: string[] = [];
+  const perKind = new Map<Kind, number>();
   let used = start;
   for (const h of top) {
     if (chosen.some((c) => within(h.s, c))) continue;
+    if (h.kind !== 'setting' && (perKind.get(h.kind) ?? 0) >= KIND_CAP) continue;
     // settings that share an owner ("For acme-billing, ...") share one line:
     // each extra one costs only its own words
     const own = h.kind === 'setting' ? h.s.match(OWNER) : null;
@@ -370,6 +399,7 @@ function fill(top: readonly Ranked[], start: number, budgetChars: number) {
       if (group) group.text += add;
       else lines.push({ owner: own[1], text: add });
       chosen.push(h.s);
+      perKind.set(h.kind, (perKind.get(h.kind) ?? 0) + 1);
       used += add.length + (group ? 0 : 1);
       continue;
     }
@@ -388,6 +418,7 @@ function fill(top: readonly Ranked[], start: number, budgetChars: number) {
     }
     lines.push({ s: h.s, text: line });
     chosen.push(h.s);
+    perKind.set(h.kind, (perKind.get(h.kind) ?? 0) + 1);
     used += line.length + 1 - refund;
   }
   return { lines, chosen, used };
