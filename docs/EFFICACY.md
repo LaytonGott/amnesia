@@ -566,6 +566,22 @@ lost their protection and the per-kind cap exists. On that compaction the
 block now carries 4 more commits, the test files and the flags in use,
 instead of about 20 research links and version strings.
 
+**The budget.** The same ground truth, by block size. The per-kind cap is
+12 lines at 6,000 chars, plus one per 500 chars beyond that.
+
+| budget | needed-later details carried | line precision | block used |
+|---|---|---|---|
+| 3,000 | 12.5% | 54% | 3.0k |
+| 6,000 (old default) | 22.5% | 58% | 6.0k |
+| **12,000 (new default)** | **35.7%** | **59%** | 11.2k |
+| 16,000 | 37.3% | 59% | 12.6k |
+| 24,000 | 37.9% | 60% | 14.0k |
+
+12,000 is the knee: 59% more of what was needed again, at the same
+precision, for about 1,500 more tokens after each compaction. Past it, the
+needed details left over are mostly ones the block skips on purpose
+(things only tool output ever showed).
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is

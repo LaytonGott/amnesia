@@ -51,7 +51,7 @@ for (const m of mods) {
     // needed: its value shows up again in later work (the probe's last part is the value)
     const val = (h: any) => (h.probe ? h.probe[h.probe.length - 1] : h.s);
     const need = missing.filter((h: any) => { const v = val(h); return v.length >= 4 && c.after.includes(v); });
-    const block = S.specificsBlock(c.dropped, c.present, 6000, true, true);
+    const block = S.specificsBlock(c.dropped, c.present, Number(process.env.BUDGET ?? 6000), true, true);
     const bt = block?.text ?? '';
     needed += need.length;
     carried += need.filter((h: any) => bt.includes(val(h))).length;
