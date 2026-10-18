@@ -52,7 +52,8 @@ test('labels name a detail by what it is', () => {
     .toEqual({ owner: 'brisk-payouts', what: 'pinned SDK version' });
   expect(labelOf({ s: 'settlement_retry_timeout_ms = 7350', kind: 'setting', probe: ['settlement_retry_timeout_ms', '7350'], context: '' }))
     .toEqual({ what: 'settlement_retry_timeout_ms' });
-  expect(labelOf({ s: '4e9b1c27d', kind: 'hash', context: 'Pin the release to commit 4e9b1c27d.' })).toEqual({ what: 'the release to commit' });
+  expect(labelOf({ s: '4e9b1c27d', kind: 'hash', context: 'Pin the release to commit 4e9b1c27d.' })).toBe(null);
+  expect(labelOf({ s: '4e9b1c27d', kind: 'hash', context: 'Pin the release to commit 4e9b1c27d.' }, { words: true })).toEqual({ what: 'the release to commit' });
   expect(labelOf({ s: 'status.example', kind: 'dotted', context: 'The incident status page is https://status.example-ledger.io/incidents/5519' })).toBe(null);
   expect(labelOf({ s: 'src/runtime/config.ts', kind: 'path', context: 'see src/runtime/config.ts' })).toEqual({ what: 'src/runtime/config.ts' });
 });
