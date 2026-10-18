@@ -3,7 +3,7 @@ import { specificsBlock, type Msg } from './specifics.ts';
 import { RECALL_DESCRIPTION, archivable, droppedFiles, promptRecall, saidRecord, search, toolRecord, type Rec } from './recall.ts';
 
 // userConfig budgetChars (plugin.json declares the default and range)
-const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 6000);
+const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 12000);
 
 const keyOf = (m: Msg) => m.handle ?? `${m.role}\u0000${m.text}`;
 

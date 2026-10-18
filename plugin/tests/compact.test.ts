@@ -82,7 +82,7 @@ test('the block stays within its budget on a huge history', async ($, on) => {
   const r = await $.session.compact({ trigger: 'auto', messages: big });
   if (r.skip !== undefined) throw new Error('skipped');
   const block = at(r.messages, 1).text;
-  expect(block.length <= 6000).toBe(true);
+  expect(block.length <= 12000).toBe(true);
   expect(block).toContain('module_399');
 });
 
@@ -109,7 +109,7 @@ test('prose with slashes is not taken for a path', async ($, on) => {
   expect(block.includes('- messages/PRs/notes')).toBe(false);
 });
 
-test('a configured budget (userConfig budgetChars) sizes the block', { options: { budgetChars: 12000 } }, async ($, on) => {
+test('a configured budget (userConfig budgetChars) sizes the block', { options: { budgetChars: 3000 } }, async ($, on) => {
   const big: SessionMessage[] = [];
   for (let i = 0; i < 400; i++) {
     big.push(msg('user', `edit src/module_${i}/file_${i}.ts and set FLAG_NUMBER_${i} to v1.${i}.0`, `b${i}`));
@@ -118,8 +118,8 @@ test('a configured budget (userConfig budgetChars) sizes the block', { options: 
   const r = await $.session.compact({ trigger: 'auto', messages: big });
   if (r.skip !== undefined) throw new Error('skipped');
   const block = at(r.messages, 1).text;
-  expect(block.length > 6000).toBe(true);
-  expect(block.length <= 12000).toBe(true);
+  expect(block.length > 1500).toBe(true);
+  expect(block.length <= 3000).toBe(true);
 });
 
 test('details still in the messages core kept verbatim are not repeated', async ($, on) => {

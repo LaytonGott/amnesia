@@ -379,16 +379,18 @@ type Ranked = Hit & { score: number };
 
 // no one kind takes over a block: a burst of test-fixture versions or a page of
 // source links would otherwise crowd out the commits and settings around them
-const KIND_CAP = 12;
+// 12 lines in a 6,000-char block, one per 500 chars beyond that
+const kindCap = (budgetChars: number) => Math.max(12, Math.floor(budgetChars / 500));
 
 function fill(top: readonly Ranked[], start: number, budgetChars: number) {
   const lines: { owner?: string; s?: string; text: string }[] = [];
   const chosen: string[] = [];
   const perKind = new Map<Kind, number>();
+  const cap = kindCap(budgetChars);
   let used = start;
   for (const h of top) {
     if (chosen.some((c) => within(h.s, c))) continue;
-    if (h.kind !== 'setting' && (perKind.get(h.kind) ?? 0) >= KIND_CAP) continue;
+    if (h.kind !== 'setting' && (perKind.get(h.kind) ?? 0) >= cap) continue;
     // settings that share an owner ("For acme-billing, ...") share one line:
     // each extra one costs only its own words
     const own = h.kind === 'setting' ? h.s.match(OWNER) : null;

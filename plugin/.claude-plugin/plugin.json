@@ -11,7 +11,7 @@
       "type": "number",
       "title": "Block budget (characters)",
       "description": "How much exact detail to append after each compaction summary. About 4 characters per token; it stays in context until the next compaction.",
-      "default": 6000,
+      "default": 12000,
       "min": 1000,
       "max": 40000
     },

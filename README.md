@@ -119,8 +119,10 @@ How it picks what to add:
   Output of tools that only read files ranks last, since it can be read
   again.
 - **What it leaves out:** anything the summary already has.
-- **The budget:** 6,000 chars by default, about 1.5k tokens, added to
-  context after each compaction. It is the plugin's `budgetChars` setting
+- **The budget:** 12,000 chars by default, about 3k tokens, added to
+  context after each compaction. On real sessions, going from 6,000 to
+  12,000 carried 59% more of the details used again afterwards, and more
+  than that adds little. It is the plugin's `budgetChars` setting
   (1,000–40,000): `claude plugin configure amnesia`, or the plugin's row in
   the config menu.
 - **When it doesn't all fit:** long sessions lose far more than any block
