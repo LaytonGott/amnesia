@@ -212,3 +212,25 @@ test('when only tool-seen details are missing, no block is added', () => {
   );
   expect(r).toBe(null);
 });
+
+// ---- learned from real sessions (bench/needed-later.mts) ----
+
+test('a burst of one kind cannot take over the block', () => {
+  const versions = Array.from({ length: 40 }, (_, i) => `${i}.${i + 1}.${i + 2}`).join(', ');
+  const r = specificsBlock([asst(`Semver fixtures: ${versions}. The release is pinned to commit 7f3c2a91e.`)], '', 6000);
+  const got = items(r?.text);
+  expect(got.filter((s) => /^\d+\.\d+\.\d+$/.test(s)).length <= 12).toBe(true);
+  expect(got).toContain('7f3c2a91e');
+});
+
+test('pieces of a URL are not details of their own', () => {
+  const r = specificsBlock([asst('See https://stryker-mutator.io/docs/stryker-js/incremental/ and https://pypi.org/project/mutmut/ for prior art.')], '', 6000);
+  const got = items(r?.text);
+  expect(got.some((s) => s === 'mutator.io' || s === 'pypi.org' || s === 'stryker-js')).toBe(false);
+  expect(got.some((s) => s.startsWith('https://stryker-mutator.io'))).toBe(true);
+});
+
+test('a setting the person stated outranks a file path the agent mentioned', () => {
+  const r = specificsBlock([user('`retry_timeout_ms` is 7350.'), asst('I also looked at src/runtime/loader.ts.')], '', TIGHT);
+  expect(items(r?.text)[0]).toBe('retry_timeout_ms = 7350');
+});
