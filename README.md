@@ -253,6 +253,11 @@ compaction first, and appends to the result.
 - Everything amnesia writes lives under `~/.claude/amnesia/` (`AMNESIA_HOME`
   overrides it). The exceptions are `CLAUDE.md` when you run
   `protect --write`, and files you point `--out` at.
+- A scan caches each transcript's result there (`scan-cache.json`) and
+  reuses it while the file's size and modification time are unchanged. On
+  the test machine (1.7 GB of transcripts) that took a full scan from 14 s
+  to 0.15 s. A new amnesia version starts the cache over, and
+  `AMNESIA_NO_CACHE=1` turns it off.
 - Your `settings.json` is backed up before any change, and only amnesia's
   entries are touched.
 - Every scan reports unrecognized journal entries, so format drift is loud.

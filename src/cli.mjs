@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import {
   listSessionFiles,
   scanFile,
+  scanFileCached,
   scanPersisted,
   encodeProjectPath,
   amnesiaHome,
@@ -134,7 +135,7 @@ function recentIn(files, dir) {
 async function latestCompacted(files, dir) {
   for (const f of recentIn(files, dir)) {
     try {
-      const r = await scanFile(f);
+      const r = await scanFileCached(f);
       if (r.boundaries.length > 0) return f;
     } catch {}
   }
@@ -534,7 +535,7 @@ export async function main(argv) {
     let totalBoundaries = 0;
     for (const f of files) {
       try {
-        const r = await scanFile(f);
+        const r = await scanFileCached(f);
         if (r.boundaries.length > 0) {
           results.push(r);
           totalBoundaries += r.boundaries.length;

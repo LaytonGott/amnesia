@@ -1,7 +1,8 @@
-import { createReadStream, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { createReadStream, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 
 export const DEFAULT_ROOT = join(homedir(), ".claude", "projects");
 
@@ -282,6 +283,54 @@ export function amnesiaHome() {
   if (process.env.AMNESIA_HOME) return process.env.AMNESIA_HOME;
   const conf = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   return join(conf, "amnesia");
+}
+
+// ---- scan cache: unchanged transcripts are not read again ------------------
+// A file's scan is reused while its size and modification time are the same,
+// and the whole cache is dropped when amnesia's version changes (a parser fix
+// must reach old files too). AMNESIA_NO_CACHE=1 turns it off.
+
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version;
+  } catch {
+    return "unknown";
+  }
+})();
+let scanCache = null;
+let scanCacheDirty = false;
+const scanCachePath = () => join(amnesiaHome(), "scan-cache.json");
+
+function loadScanCache() {
+  if (scanCache) return scanCache;
+  scanCache = { version: VERSION, entries: {} };
+  try {
+    const v = JSON.parse(readFileSync(scanCachePath(), "utf8"));
+    if (v && v.version === VERSION && v.entries) scanCache = v;
+  } catch {}
+  process.once("exit", saveScanCache);
+  return scanCache;
+}
+
+export function saveScanCache() {
+  if (!scanCache || !scanCacheDirty) return;
+  try {
+    mkdirSync(dirname(scanCachePath()), { recursive: true });
+    writeFileSync(scanCachePath(), JSON.stringify(scanCache));
+    scanCacheDirty = false;
+  } catch {}
+}
+
+export async function scanFileCached(file, opts = {}) {
+  if (process.env.AMNESIA_NO_CACHE) return scanFile(file, opts);
+  const cache = loadScanCache();
+  const key = `${file.path}|${opts.withPreviews ? 1 : 0}|${opts.maxPreviews ?? 6}`;
+  const hit = cache.entries[key];
+  if (hit && hit.size === file.size && hit.mtimeMs === file.mtimeMs) return { ...hit.result, file };
+  const result = await scanFile(file, opts);
+  cache.entries[key] = { size: file.size, mtimeMs: file.mtimeMs, result };
+  scanCacheDirty = true;
+  return result;
 }
 
 export function projectStore(cwd) {
