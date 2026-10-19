@@ -1,11 +1,15 @@
 import type { EngineInterface, Register } from 'claude-code';
-import { specificsBlock, type Msg } from './specifics.ts';
+import { RERANK_POOL, candidates, parsePicks, rerankPrompt, specificsBlock, steerText, withSteer, type Msg } from './specifics.ts';
 import { RECALL_DESCRIPTION, archivable, droppedFiles, promptRecall, saidRecord, search, toolRecord, type Rec } from './recall.ts';
 
 // userConfig budgetChars (plugin.json declares the default and range)
 const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 12000);
 
 const keyOf = (m: Msg) => m.handle ?? `${m.role}\u0000${m.text}`;
+
+// the must-keep list handed to the summarizer: short, since some summary
+// prompts cap the whole summary at 2,000 words
+const STEER_CHARS = 2000;
 
 const RECALL = 'recall';
 // the newest archive files a search reads; older ones stay on disk
@@ -85,6 +89,12 @@ export const register: Register = (on, options) => {
   const archive = options?.recall !== false;
   // naming what did not fit only helps when the agent can look it up
   const index = archive && options?.lossIndex !== false;
+  const steer = options?.steer !== false;
+  // a small model reorders the block's shortlist by what the work in progress needs
+  const rerank = options?.rerank !== false;
+  // the list a precompute was steered with: its summary is swapped in at the
+  // next compaction, so that compaction is told the same thing
+  let precomputeSteer: string | undefined;
   // just-in-time recall: attach the replaced messages a prompt is about
   const jit = archive && options?.autoRecall !== false;
   // what was attached since the last compaction, so the same message is not sent twice
@@ -184,10 +194,25 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e));
 
   on('session.compact', async ($, e, next) => {
-    if (e.trigger === 'precompute' || e.agentId !== undefined) return next(e);
+    if (e.agentId !== undefined) return next(e);
 
+    // ask the summarizer to keep the exact details itself; the block below then
+    // carries only what it still dropped
+    let list: string | undefined;
+    if (steer) {
+      try {
+        list = (e.trigger !== 'precompute' ? precomputeSteer : undefined) ?? steerText(e.messages, STEER_CHARS)?.text;
+      } catch {}
+    }
+    const steered = list ? { ...e, instructions: withSteer(e.instructions, list) } : e;
+    if (e.trigger === 'precompute') {
+      precomputeSteer = list;
+      return next(steered);
+    }
+    precomputeSteer = undefined;
     attached = new Set();
-    const done = await next(e);
+
+    const done = await next(steered);
     if (done.skip !== undefined) return done;
 
     const inKeys = new Set(e.messages.map(keyOf));
@@ -215,7 +240,46 @@ export const register: Register = (on, options) => {
         ...(m.toolResults ?? []).map((r) => r.text ?? ''),
       ]),
     ].join('\n');
-    const block = specificsBlock(dropped, inContext, budget, archive, index);
+    // Haiku picks, from the learned shortlist, what continuing the work will need;
+    // any failure or slow reply leaves the learned order
+    let order: string[] | undefined;
+    if (rerank) {
+      try {
+        const pool = candidates(dropped, inContext).list.slice(0, RERANK_POOL);
+        if (pool.length >= 20) {
+          const summaryText = fresh.map((i) => done.messages[i]?.text ?? '').join('\n');
+          const keptText = kept.map((m) => m.text).join('\n');
+          // the more of the work it reads, the better it picks: with the whole
+          // summary, the last messages before it and the person's last two
+          // requests, 19.3% of its picks were session-specific details used
+          // again, against 17.5% with the summary's end and the requests, and
+          // 13.3% for the learned order alone (70 real compactions)
+          const asks = dropped
+            .filter((m) => m.role === 'user' && !m.toolResults?.length && m.text.trim() && !m.text.startsWith('[amnesia]'))
+            .slice(-2)
+            .map((m) => m.text.slice(0, 1000))
+            .join('\n');
+          const recent = dropped
+            .slice(-6)
+            .map((m) => `${m.role}: ${m.text.slice(0, 1500)}`)
+            .join('\n');
+          const wip = [
+            summaryText.slice(-12000),
+            keptText.slice(-3000),
+            `The last messages before the summary:\n${recent}`,
+            ...(asks ? [`The person's latest requests:\n${asks}`] : []),
+          ].join('\n');
+          const r = await $.model.complete({
+            model: 'haiku',
+            prompt: rerankPrompt(pool, wip),
+            maxTokens: 800,
+            timeoutMs: 30_000,
+          });
+          if (r.isAnswered) order = parsePicks(r.text, pool.length).map((i) => pool[i]!.s);
+        }
+      } catch {}
+    }
+    const block = specificsBlock(dropped, inContext, budget, archive, index, order);
     if (!block) return done;
 
     const messages = [...done.messages];

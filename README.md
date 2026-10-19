@@ -115,10 +115,21 @@ that were already completed.
 How it picks what to add:
 - **What it looks for:** settings, paths, URLs, hashes, versions, tickets,
   env vars and @handles.
-- **What ranks first:** what you or the agent wrote, ahead of tool output.
-  Output of tools that only read files ranks last, since it can be read
-  again.
+- **What ranks first:** weights learned from 70 real compactions, by which
+  details were used again afterwards. Your own words, settings, things said
+  often and said late rank high. Tool output ranks low, and output of tools
+  that only read files lowest, since it can be read again. Common values
+  (a flag found in every session) don't count as remembered. On held-out
+  sessions the block carries 35% of the dropped details particular to the
+  session that were used again, against 31% before the refit.
 - **What it leaves out:** anything the summary already has.
+- **A second opinion:** at each compaction, Haiku reads the summary, the
+  last messages before it, your last two requests and the top 300
+  candidates, and picks the 100 the work in progress needs most; those lead
+  the block. On real sessions that made 45% more of the picks
+  session-specific details used again (19.3% vs 13.3%), for about $0.005 a
+  compaction. Any failure keeps
+  the learned order. The `rerank` setting turns it off.
 - **The budget:** 12,000 chars by default, about 3k tokens, added to
   context after each compaction. On real sessions, going from 6,000 to
   12,000 carried 59% more of the details used again afterwards, and more
@@ -253,6 +264,11 @@ compaction first, and appends to the result.
 - Everything amnesia writes lives under `~/.claude/amnesia/` (`AMNESIA_HOME`
   overrides it). The exceptions are `CLAUDE.md` when you run
   `protect --write`, and files you point `--out` at.
+- A scan caches each transcript's result there (`scan-cache.json`) and
+  reuses it while the file's size and modification time are unchanged. On
+  the test machine (1.7 GB of transcripts) that took a full scan from 14 s
+  to 0.15 s. A new amnesia version starts the cache over, and
+  `AMNESIA_NO_CACHE=1` turns it off.
 - Your `settings.json` is backed up before any change, and only amnesia's
   entries are touched.
 - Every scan reports unrecognized journal entries, so format drift is loud.

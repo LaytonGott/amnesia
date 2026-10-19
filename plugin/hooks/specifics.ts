@@ -72,6 +72,19 @@ const FILE_KEY = /\.[A-Za-z]{1,6}$/;
 const ESCAPE = /^\\(?:u\{?[0-9A-Fa-f]{2,6}\}?|x[0-9A-Fa-f]{2}|[nrtbfv0])$/;
 
 const PATTERNS: Pattern[] = [
+  // "Set `retry_timeout_ms` to 7350", "bump `api_version` to `2025-01`": a change the person or the agent made
+  {
+    kind: 'setting',
+    own: true,
+    re: /\b(?:set|change|changed|bump|bumped|raise|raised|lower|lowered|update|updated|pin|pinned)\s+`([A-Za-z_][\w.-]{2,80})`\s+to\s+(?:`([^`\n]{1,80})`|([^\s,;()`]{1,80}))/gi,
+    item: (m) => {
+      const k = m[1];
+      const v = m[2] !== undefined ? m[2].trim() : clean(m[3] ?? '');
+      if (!k || !v || !keyOk(k) || !valueOk(v)) return null;
+      if (m[2] === undefined && !/\d|[._/:@-]/.test(v)) return null;
+      return { s: `${k} = ${v}`, probe: [k, v] };
+    },
+  },
   // `key` is `value` (or a bare value with a digit or symbol: `key` is 7350)
   // in what someone wrote: the value keeps its key
   {
@@ -129,7 +142,7 @@ const PATTERNS: Pattern[] = [
   { kind: 'file', re: /\b[\w-]+\.(?:ts|tsx|js|mjs|cjs|py|rs|go|java|json|md|yml|yaml|toml|sql|sh|ps1|css|html|txt|lock|ini|env|jsonl)\b/g },
   // not a method call (out.push(x), $.ui.status?.()): that is code, read again from the file;
   // nor a field of a one- or two-letter variable (r.stderr, e.message, opts is kept)
-  { kind: 'dotted', re: /\b(?![A-Za-z_]\w?\.)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
+  { kind: 'dotted', re: /(?<![\w-])(?![A-Za-z_]\w?\.)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\b(?!\??\.?\()/g },
   { kind: 'version', re: /\bv?\d+\.\d+\.\d+(?:[-+][\w.]+)?\b/g },
   // hex runs inside a UUID (8-4-4-4-12) are ids, not commits
   // nor a path segment (bundled-skills/2.1.299/1c0faf7d.../plugin-authoring)
@@ -292,20 +305,45 @@ export function collect(dropped: readonly Msg[]): Map<string, Hit> {
   return hits;
 }
 
-// Learned from 68 real compactions (bench/needed-later.mts): log-odds, per
-// feature, that a dropped detail is one the person later had to say again.
-// Settings, the person's own words, things said often and said late come
-// back; long strings, paths, files and things only tools printed do not.
+// Learned from 70 real compactions (bench/needed-later.mts, STRICT=3): log-odds,
+// per feature, that a dropped detail is used again afterwards, by the person
+// or the agent, and is particular to its session (found in fewer than 3
+// sessions, so a common flag reused shows no memory). Settings, handles,
+// things said often and said late come back; long strings, hashes, versions,
+// flags and things only tools printed do not. The shape of a name counts too
+// (after Aider's repo map): ALLCAPS names and short plain words come back.
 const LEARNED: Record<string, number> = {
-  'best:0': -0.46, 'best:1': -0.38, 'best:2': -0.03, 'best:3': 0.21, 'best:4': 1.87,
-  'cnt:0': 0.02, 'cnt:1': -0.16, 'cnt:2': -0.15, 'cnt:3': 0.46,
-  'kind:branch': -0.8, 'kind:code': -0.27, 'kind:dotted': 0.64, 'kind:env': -1.15, 'kind:file': -1.51,
-  'kind:flag': -1.13, 'kind:handle': -0.66, 'kind:hash': -2.12, 'kind:ident': -0.45, 'kind:path': -2.04,
-  'kind:quoted': 0.16, 'kind:setting': 2.86, 'kind:url': -2.07, 'kind:version': -1.23,
-  'len:0': 0.77, 'len:1': -0.75, 'len:2': -1.71,
-  'read:false': 0.06, 'read:true': -0.46,
-  'rec:0': -0.33, 'rec:1': -0.12, 'rec:2': 0.1, 'rec:3': 0.08, 'rec:4': 0.51,
+  'best:0': -0.5, 'best:1': -0.98, 'best:2': 0.35, 'best:3': 0.51, 'best:4': 0.74,
+  'cnt:0': -0.37, 'cnt:1': -0.11, 'cnt:2': 0.32, 'cnt:3': 0.9,
+  'kind:branch': -0.81, 'kind:code': -0.58, 'kind:dotted': 0.47, 'kind:env': -0.07,
+  'kind:file': -0.82, 'kind:flag': -0.69, 'kind:handle': 0.64, 'kind:hash': -1.3, 'kind:ident': -0.1,
+  'kind:path': -0.44, 'kind:quoted': 0.24, 'kind:setting': 1.4, 'kind:url': -1.13,
+  'kind:version': -1.15,
+  'len:0': 0.24, 'len:1': 0.01, 'len:2': -0.83,
+  'read:false': 0.06, 'read:true': -0.5,
+  'rec:0': -0.52, 'rec:1': -0.28, 'rec:2': 0.04, 'rec:3': 0.23, 'rec:4': 0.83,
+  'shape:camel+': 0.19, 'shape:camel-': 0.01, 'shape:dot+': -0.06, 'shape:dot-': 0.33,
+  'shape:kebab+': -0.44, 'shape:kebab-': -0.4, 'shape:num+': -0.19, 'shape:num-': -0.32,
+  'shape:path+': -0.4, 'shape:path-': 0.41, 'shape:plain+': 0.35, 'shape:plain-': 1.03,
+  'shape:snake+': -0.01, 'shape:snake-': -0.33, 'shape:upper+': 1.08, 'shape:upper-': 2.06,
 };
+// what the person wrote themselves ranks a step higher: held out, that kept
+// as much of what they later repeated as the old fit on that label alone
+// (61.0% vs 61.6%), while carrying 34.8% vs 31.3% of all such later use
+const OWN_WORDS = 1;
+// a name's shape: its casing style, and whether it runs to 8+ characters
+function casingOf(v: string): string {
+  const style =
+    /^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(v) ? 'kebab'
+    : /^[a-z]+(?:[A-Z][a-z0-9]*)+$/.test(v) ? 'camel'
+    : /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(v) ? 'snake'
+    : /^[A-Z][A-Z0-9_]+$/.test(v) ? 'upper'
+    : /[\\/]/.test(v) ? 'path'
+    : /\./.test(v) ? 'dot'
+    : /^\d+$/.test(v) ? 'num'
+    : 'plain';
+  return `${style}${v.length >= 8 ? '+' : '-'}`;
+}
 // what cannot be re-derived once lost is rarely repeated but costly when it is:
 // it keeps its place (held out, this kept as many such lines as before)
 const IRREPLACEABLE = new Set<Kind>(['hash', 'url', 'setting', 'code', 'branch']);
@@ -320,21 +358,16 @@ export function scoreOf(h: Hit, n: number): number {
     `cnt:${h.count >= 10 ? 3 : h.count >= 4 ? 2 : h.count >= 2 ? 1 : 0}`,
     `len:${v.length >= 30 ? 2 : v.length >= 12 ? 1 : 0}`,
     `read:${h.onlyRead}`,
+    `shape:${casingOf(v)}`,
   ];
-  return features.reduce((s, f) => s + (LEARNED[f] ?? 0), 0) + (IRREPLACEABLE.has(h.kind) ? 4 : 0);
+  return features.reduce((s, f) => s + (LEARNED[f] ?? 0), 0) + (IRREPLACEABLE.has(h.kind) ? 4 : 0) + (h.best === WEIGHT.user ? OWN_WORDS : 0);
 }
 
 const kept = (h: Hit, summary: string) => (h.probe ?? [h.s]).every((p) => summary.includes(p));
 
-export function specificsBlock(
-  dropped: readonly Msg[],
-  summary: string,
-  budgetChars: number,
-  // the recall tool is registered: the header points the agent at it
-  recall = false,
-  // name what else was lost when it does not all fit (only useful with recall)
-  index = false,
-): { text: string; candidates: number; missing: number; included: number; indexed: number } | null {
+// what the block draws from: the dropped details missing from what is still in
+// context, filtered and in the learned order (the shortlist a reranker sees)
+export function candidates(dropped: readonly Msg[], summary: string): { hits: number; list: (Hit & { score: number })[] } {
   const hits = collect(dropped);
   const n = Math.max(1, dropped.length);
   const missing = [...hits.values()]
@@ -348,9 +381,30 @@ export function specificsBlock(
     .sort((a, b) => b.score - a.score)
     .slice(0, 500);
   // a string inside a longer one that ranks at least as high (config.ts in src/runtime/config.ts) adds nothing
-  const top = missing.filter(
+  const list = missing.filter(
     (h) => !missing.some((o) => o.score >= h.score && o.s.length > h.s.length && within(h.s, o.s)),
   );
+  return { hits: hits.size, list };
+}
+
+export function specificsBlock(
+  dropped: readonly Msg[],
+  summary: string,
+  budgetChars: number,
+  // the recall tool is registered: the header points the agent at it
+  recall = false,
+  // name what else was lost when it does not all fit (only useful with recall)
+  index = false,
+  // a reranker's choice, most needed first: these lead, the learned order follows
+  order?: readonly string[],
+): { text: string; candidates: number; missing: number; included: number; indexed: number } | null {
+  const shortlist = candidates(dropped, summary);
+  const missing = shortlist.list;
+  const hits = { size: shortlist.hits };
+  const first = new Map((order ?? []).map((s, i) => [s, i] as const));
+  const top = first.size
+    ? [...missing.filter((h) => first.has(h.s)).sort((a, b) => first.get(a.s)! - first.get(b.s)!), ...missing.filter((h) => !first.has(h.s))]
+    : missing;
 
   const head =
     `${MARKER} Exact details the summary above dropped, verbatim from the replaced history. ` +
@@ -471,8 +525,8 @@ export function labelOf(
   }
   // a bare value (a hash, a URL, a version) has no name of its own. The words
   // before it make a poor label for the loss index ("1 4657", "source": on real
-  // sessions 1-8% of such entries were needed again), so only a caller that
-  // shows them beside the value asks for them
+  // sessions 1-8% of such entries were needed again), so only the steering list,
+  // which shows them beside the value, asks for them
   if (!words) return null;
   const at = h.context.indexOf(h.s);
   const before = (at >= 0 ? h.context.slice(0, at) : '')
@@ -517,4 +571,70 @@ function lossIndex(hits: readonly Ranked[], budget: number): { text: string; nam
   if (out.length === 0) return null;
   const more = total - named;
   return { text: INDEX_LEAD + out.join(' · ') + (more > 0 ? ` · and ${more} more` : '') + '.', named };
+}
+
+// ---- steering: what the summarizer is asked to keep ----------------------
+
+export const STEER_LEAD =
+  'amnesia: this conversation holds these exact details. Where any still matters for the work, keep it in the summary ' +
+  'verbatim, with what it belongs to (they are hard to recover once dropped):';
+// what a summarizer can usefully be asked to copy: values, not names it can re-read
+const STEER_KINDS = new Set<Kind>(['setting', 'url', 'hash', 'version', 'code', 'handle', 'env']);
+
+// a short must-keep list for the summarizer, from the messages about to be compacted.
+// Settings are listed as written; other values with the words that say what they are.
+export function steerText(messages: readonly Msg[], budgetChars: number): { text: string; items: number } | null {
+  const n = Math.max(1, messages.length);
+  const ranked = [...collect(messages).values()]
+    .filter((h) => h.inOwn && STEER_KINDS.has(h.kind))
+    .map((h) => ({ ...h, score: scoreOf(h, n) }))
+    .sort((a, b) => b.score - a.score);
+  const lines: string[] = [];
+  const chosen: string[] = [];
+  let used = STEER_LEAD.length;
+  for (const h of ranked) {
+    if (chosen.some((c) => within(h.s, c))) continue;
+    const what = h.kind === 'setting' ? null : labelOf(h, { words: true })?.what;
+    const line = `- ${what ? `${what}: ${h.s}` : h.s}`;
+    if (used + line.length + 1 > budgetChars) continue;
+    lines.push(line);
+    chosen.push(h.s);
+    used += line.length + 1;
+  }
+  return lines.length ? { text: [STEER_LEAD, ...lines].join('\n'), items: lines.length } : null;
+}
+
+// the person's own /compact instructions come first and stay whole
+export const withSteer = (instructions: string | undefined, steer: string) =>
+  instructions && instructions.trim() ? `${instructions.trim()}\n\n${steer}` : steer;
+
+// ---- reranking: a small model picks what the work in progress needs --------
+// Measured on 69 real compactions (the learned ranking's top 300 reranked by
+// Haiku, given the end of the summary and the kept messages): of the 100
+// details picked per compaction, 30.0% were used again afterwards, against
+// 24.4% for the learned order alone; about $0.004 a compaction.
+
+export const RERANK_POOL = 300;
+export const RERANK_PICKS = 100;
+
+export function rerankPrompt(list: readonly Pick<Hit, 's' | 'context'>[], workInProgress: string, picks = RERANK_PICKS): string {
+  const items = list
+    .map((h, i) => `${i + 1}. ${h.s}${h.context && h.context !== h.s ? '  (' + h.context.slice(0, 90) + ')' : ''}`)
+    .join('\n');
+  return (
+    'A coding session was just compacted. Below is the end of its summary and the messages kept after it (the work in progress), ' +
+    `then numbered exact details the summary dropped. Pick the ${Math.min(picks, list.length)} details most likely to be needed to continue this work ` +
+    '(values, names and settings the next steps will use), most important first. Reply with only the numbers, comma-separated.' +
+    '\n\n--- WORK IN PROGRESS ---\n' + workInProgress + '\n\n--- DROPPED DETAILS ---\n' + items
+  );
+}
+
+// the model's numbers as indexes into the list, in its order, each once
+export function parsePicks(reply: string, size: number): number[] {
+  const out: number[] = [];
+  for (const m of reply.matchAll(/\d+/g)) {
+    const i = Number(m[0]) - 1;
+    if (i >= 0 && i < size && !out.includes(i)) out.push(i);
+  }
+  return out;
 }

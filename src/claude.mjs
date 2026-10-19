@@ -1,7 +1,8 @@
-import { createReadStream, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, createReadStream, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 
 export const DEFAULT_ROOT = join(homedir(), ".claude", "projects");
 
@@ -76,11 +77,17 @@ export function pluginBlockOf(text) {
 // (paths, ids, versions, hyphenated names), lowercased. The measure behind
 // bench/audit-real.mjs and the README's figure for long sessions.
 const EXACT_RE = /\b[A-Za-z][A-Za-z0-9]*(?:[._/\\-][A-Za-z0-9]+)+\b/g;
+// what the harness wraps around or injects into a user row, not typed by anyone:
+// background-task notices and reminders whole, then the tag names of the rest
+// (<pasted_content>, <command-name>), whose contents stay
+const INJECTED_RE = /<(task-notification|system-reminder)>[\s\S]*?<\/\1>/g;
+const TAG_RE = /<\/?[a-z][\w-]*(?:\s[^<>]*)?>/g;
 export function exactStrings(text) {
   const out = new Set();
-  for (const m of String(text ?? "").matchAll(EXACT_RE)) {
+  const typed = String(text ?? "").replace(INJECTED_RE, " ").replace(TAG_RE, " ");
+  for (const m of typed.matchAll(EXACT_RE)) {
     const v = m[0].toLowerCase();
-    if (v.length >= 5) out.add(v);
+    if (v.length >= 5 && !v.startsWith("toolu_")) out.add(v);
   }
   return out;
 }
@@ -282,6 +289,59 @@ export function amnesiaHome() {
   if (process.env.AMNESIA_HOME) return process.env.AMNESIA_HOME;
   const conf = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   return join(conf, "amnesia");
+}
+
+// ---- scan cache: unchanged transcripts are not read again ------------------
+// A file's scan is reused while its size and modification time are the same,
+// and the whole cache is dropped when amnesia's version changes (a parser fix
+// must reach old files too). AMNESIA_NO_CACHE=1 turns it off.
+
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")).version;
+  } catch {
+    return "unknown";
+  }
+})();
+let scanCache = null;
+let scanCacheDirty = false;
+const scanCachePath = () => join(amnesiaHome(), "scan-cache.json");
+
+function loadScanCache() {
+  if (scanCache) return scanCache;
+  scanCache = { version: VERSION, entries: {} };
+  try {
+    // the cache holds summary text from your sessions: owner-only, like the transcripts it mirrors
+    chmodSync(scanCachePath(), 0o600);
+    const v = JSON.parse(readFileSync(scanCachePath(), "utf8"));
+    if (v && v.version === VERSION && v.entries) scanCache = v;
+  } catch {}
+  process.once("exit", saveScanCache);
+  return scanCache;
+}
+
+export function saveScanCache() {
+  if (!scanCache || !scanCacheDirty) return;
+  try {
+    mkdirSync(dirname(scanCachePath()), { recursive: true, mode: 0o700 });
+    // written whole or not at all: a scan cut short never leaves half a cache
+    const tmp = `${scanCachePath()}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(scanCache), { mode: 0o600 });
+    renameSync(tmp, scanCachePath());
+    scanCacheDirty = false;
+  } catch {}
+}
+
+export async function scanFileCached(file, opts = {}) {
+  if (process.env.AMNESIA_NO_CACHE) return scanFile(file, opts);
+  const cache = loadScanCache();
+  const key = `${file.path}|${opts.withPreviews ? 1 : 0}|${opts.maxPreviews ?? 6}`;
+  const hit = cache.entries[key];
+  if (hit && hit.size === file.size && hit.mtimeMs === file.mtimeMs) return { ...hit.result, file };
+  const result = await scanFile(file, opts);
+  cache.entries[key] = { size: file.size, mtimeMs: file.mtimeMs, result };
+  scanCacheDirty = true;
+  return result;
 }
 
 export function projectStore(cwd) {

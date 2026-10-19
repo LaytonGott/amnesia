@@ -123,3 +123,11 @@ test('the loss index names things by their names, not by the words before a bare
   expect(line.includes('at commit')).toBe(false);
   expect(line).toMatch(/svc-\d+-api \(staging port\)/);
 });
+
+// a live lossy compaction of the bench seed (2026-10-18) led with history.txt,
+// the tail of ci/build-history.txt
+test('the tail of a hyphenated file name is not a name of its own', () => {
+  const got = items(specificsBlock([user('Now read ci/build-history.txt and tell me the last green build.')], '', WIDE)?.text);
+  expect(got).toContain('ci/build-history.txt');
+  expect(got.some((s) => s === 'history.txt')).toBe(false);
+});

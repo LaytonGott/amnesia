@@ -30,11 +30,14 @@ In Claude Code (one-step install needs 2.1.275 or later; verified on
 - **Org-managed installs:** where an organization manages Claude Code, the
   `session.compact` hook runs only in plugins the organization lists in
   managed settings.
-- **Skipped compactions:** `precompute` dispatches and subagent compactions
-  pass through untouched.
+- **Skipped compactions:** a `precompute` dispatch gets no block (its result
+  is kept for the next compaction), only the steering list when `steer` is
+  on; subagent compactions pass through untouched.
 - **Budget:** the block is capped at 12,000 chars by default (about 3k
   tokens of context after each compaction). Change it with the
   `budgetChars` setting (1,000–40,000): `claude plugin configure amnesia`.
+- **Rerank:** one Haiku call per compaction (about $0.005, up to 30 s),
+  billed like any other request of the session. `rerank: false` skips it.
 - **Recall:**
   - The archive is kept per session id, so a forked session starts an
     empty one.

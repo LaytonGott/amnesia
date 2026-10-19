@@ -26,6 +26,7 @@ import {
   exactStrings,
   pluginBlockOf,
   retentionOf,
+  scanFileCached,
 } from "../src/claude.mjs";
 import { isToolResultPath } from "../src/actions.mjs";
 
@@ -384,6 +385,10 @@ test("exact strings are compound tokens of 5+ characters, lowercased", () => {
   assert.equal(retentionOf(["nothing exact here"], "s", null), null);
   assert.equal(retentionOf(["edit src/a.ts"], null, null), null);
   assert.equal(pluginBlockOf("[amnesia] Exact details x\n- a = 1").indexed, 0);
+  // harness-injected rows and tags count for nothing; pasted contents still count
+  const note = "<task-notification><task-id>b5f9e1z4z</task-id><output-file>C:\\x\\tasks\\b5f9e1z4z.output</output-file></task-notification>";
+  assert.deepEqual([...exactStrings(note)], []);
+  assert.deepEqual([...exactStrings('<pasted_content id="1b8f">deploy svc-3-api</pasted_content> toolu_01abc_def')], ["svc-3-api"]);
 });
 
 test("a prompt or summary that mentions compact_boundary is still read", async () => {
@@ -403,4 +408,36 @@ test("a prompt or summary that mentions compact_boundary is still read", async (
   assert.equal(s.boundaries.length, 1);
   assert.equal(s.boundaries[0].summary, "Summary: debugged the compact_boundary parser in src/claude.mjs.");
   assert.deepEqual(s.boundaries[0].retention, { strings: 2, held: 2, block: 0 });
+});
+
+test("an unchanged transcript's scan is reused; a changed one is read again", async () => {
+  const home = join(tmp, "cache-home");
+  const prev = process.env.AMNESIA_HOME;
+  process.env.AMNESIA_HOME = home;
+  try {
+    const p = join(tmp, "cached.jsonl");
+    const rows = [
+      { type: "user", uuid: "q1", timestamp: "2026-10-01T10:00:00.000Z", message: { role: "user", content: "pin src/a.ts" } },
+      { type: "system", subtype: "compact_boundary", uuid: "b1", timestamp: "2026-10-01T10:05:00.000Z", compactMetadata: { trigger: "auto", preTokens: 50000, postTokens: 6000 } },
+    ];
+    writeFileSync(p, jsonl(rows));
+    const file = () => ({ path: p, project: "x", session: "cached", size: readFileSync(p).length, mtimeMs: 1 });
+    const first = await scanFileCached(file());
+    assert.equal(first.boundaries.length, 1);
+    // same size and mtime: the stored scan is returned even though the file now says otherwise
+    writeFileSync(p, jsonl(rows).replace("pin src/a.ts", "pin src/b.ts"));
+    const reused = await scanFileCached(file());
+    assert.equal(reused.boundaries.length, 1);
+    assert.equal(reused.userSeen, first.userSeen);
+    // a real change (size differs): read again
+    writeFileSync(p, jsonl([...rows, { type: "system", subtype: "compact_boundary", uuid: "b2", timestamp: "2026-10-01T11:00:00.000Z", compactMetadata: { trigger: "auto", preTokens: 60000, postTokens: 6000 } }]));
+    const fresh = await scanFileCached(file());
+    assert.equal(fresh.boundaries.length, 2);
+    process.env.AMNESIA_NO_CACHE = "1";
+    assert.equal((await scanFileCached(file())).boundaries.length, 2);
+  } finally {
+    delete process.env.AMNESIA_NO_CACHE;
+    if (prev === undefined) delete process.env.AMNESIA_HOME;
+    else process.env.AMNESIA_HOME = prev;
+  }
 });

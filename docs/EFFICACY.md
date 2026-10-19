@@ -416,6 +416,41 @@ release's own. Two arms, both with recall on:
 So the index is on by default whenever recall is on (`lossIndex`). Limits:
 the same as above, plus 3 runs per arm. Spend: $4.28.
 
+### Steering the summary (plugin 0.12.0): no measurable gain at 190k
+
+The plugin can hand Claude Code's summarizer a must-keep list before it
+writes, through the hook's `instructions`. Claude Code appends that list
+verbatim after its own prompt. The list holds about 2,000 chars of the
+top-ranked exact values, and it runs on `precompute` too (see
+docs/MECHANISMS.md). Tested on the same seeded session with a **plain
+`/compact`**, no lossy instruction, so whatever loss happens is the
+summarizer's own. B is the plugin with steering off, S with it on, 3 runs
+each, all on the same summary prompt arm.
+
+| arm | seeded facts the summary kept (of 100) | deploy script correct |
+|---|---|---|
+| block only | 21, 100, 100 (mean 74) | 25/30 |
+| steered + block | 100, 51, 100 (mean 84) | 28/30 |
+
+- **Unforced loss here is all or nothing.** Either the summary quotes every
+  user message (100/100), or it condenses them and keeps 21–51. Steering
+  didn't stop the condensed mode (one steered run kept 51).
+- **The differences are within noise** at 3 runs. The first steered run
+  (100 vs 21) looked like a big win; the next two didn't hold it up.
+- **Cost:** steered summaries ran about 30% longer (13.4k vs 10.2k chars), so
+  roughly 800 more tokens stay in context after each compaction.
+
+Not shown to help at this size. Where it might help is where summaries
+lose the most, ~1M-token sessions, which this bench can't afford to seed.
+Spend: $4.58.
+
+**One real ~1M-token data point.** The same long session compacted twice at
+about 968k tokens, first without steering, then with it. Of the exact
+strings in the prompts each compaction replaced (harness text excluded), the
+unsteered summary kept 21 of 51 (41%) and the steered one 19 of 24 (79%).
+One pair, with different content each time, so a hint, not a measurement.
+Shipped on by default in plugin 0.12.0; the `steer` setting turns it off.
+
 ### Just-in-time recall: the lost message rides with the prompt (plugin 0.10.0)
 
 After a compaction the plugin matches each new prompt against the messages
@@ -581,6 +616,172 @@ compaction's later prompts against its rebuilt archive:
 - **Marginal value:** 66.9% of those attachments hold a lost value that was
   used again afterwards and that the 12,000-char block didn't already
   carry.
+
+**Tried on the same ground truth and rejected:**
+- **Stricter just-in-time anchors** (no hyphen-only names): fewer prompts
+  got attachments (17.8% vs 22.7%), and fewer of those held a needed value
+  (61.7% vs 66.9%). Hyphenated service names are good anchors.
+- **A bonus for paths the person typed:** paths needed again went from 5%
+  to 9% carried, but URLs fell from 42% to 36% and overall coverage dipped.
+- **Recall at resume time:** after an auto-compaction, Claude Code resumes
+  with no prompt of the person's. So the archive was queried with the end
+  of the summary and the kept messages, and up to 3 messages attached.
+  62% of compactions got one holding a needed value. But the same
+  characters given to the block carried 709 needed values, against 110.
+- **Ranking on which sources mentioned a detail** (the person, the agent,
+  tool input, tool output, file reads), on top of the current features:
+  - **Strict label:** held out, it carried 1–2 points more of what the
+    person repeated, with a protection bonus of 5.
+  - **Broad label:** across all data it carried 3 points less of what was
+    used again at all (32.9% vs 35.9% at 12k).
+
+  A trade, not a gain.
+
+**Kept, though neutral:** "set `key` to value" (also change, bump, raise,
+lower, update and pin) is now extracted as `key = value`. Real sessions
+rarely phrase settings that way, so it moved nothing.
+
+**Refit on a stricter label, with name shape (plugin 0.12.0).**
+The first fit labeled a detail needed only when the person later said it
+again. Counting any later use instead (the person, the agent's text, its
+tool inputs) raised held-out coverage from 36.2% to 41.8%, but put common
+CLI flags (`--short`, `--oneline`) near the top of the block. Typing a common
+flag again shows no memory: about half the "used again" values turn up in 3
+or more different sessions. The ground truth now leaves those out
+(`STRICT=3 node bench/needed-later.mts`). The refit on that label adds:
+- **Name shape**, after Aider's repo map: the casing style (kebab, camel,
+  snake, ALLCAPS, path, dotted, digits, plain) and whether the name runs to
+  8 characters or more.
+- **Your own words** rank a step higher (+1).
+
+At 12k, held out on two halves of 70 real compactions for the strict label:
+
+| weights | strict label | any later use | what the person repeated |
+|---|---|---|---|
+| first fit (person-repeated label) | 31.3% | 36.2% | 61.6% |
+| **strict refit + shape + own words (shipped)** | **34.8%** | **39.9%** | **61.0%** |
+
+- **Without the own-words step:** 35.1% strict, but what the person repeated
+  fell to 57.5%.
+- **Rejected:** a feature for "mentioned in the last 10% of the dropped
+  span" lost 0.5 points.
+- **Rejected, per-project weights:** each compaction got the global counts
+  plus 1×, 3× or 10× those of its own project's earlier compactions (54 of
+  70 had some). Every mix scored 41.7%, against 41.8% with the global
+  weights alone. One set of weights generalizes.
+
+**The rerank, re-checked: the more it reads, the better it picks.** Top 100
+slots of 70 compactions (7,000 slots), all arms on the same order: the
+loose-label refit for the first table, the shipped strict-label weights for
+the second.
+
+| what Haiku reads (loose-label weights) | used again |
+|---|---|
+| nothing: learned order alone | 38.9% |
+| end of summary (3k chars), kept messages | 41.4% |
+| + your last two dropped requests | 43.0% |
+
+| what Haiku reads (shipped weights) | strict label | any later use |
+|---|---|---|
+| nothing: learned order alone | 13.3% | 27.3% |
+| end of summary, kept messages, your last two requests | 17.5% | 36.6% |
+| **whole summary (12k), kept (3k), last 6 dropped messages, your last two requests (shipped)** | **19.3%** | **39.0%** |
+
+- **Cost:** $0.38 for all 70, about $0.005 a compaction.
+- **Shortlist size:** with the same context, Haiku choosing from 300
+  candidates does best. From 200, 17.0% strict (35.9% any later use); from
+  500, 17.7% (34.9%). Fewer candidates leave out needed details, while more
+  of them bury those details among noise. One run per size, so the gaps are
+  approximate, but 300 led on both labels.
+- **The trend says more context helps.** A fork of the main thread
+  (`$.model.fork`, which Cursor's self-summary resembles) would read the
+  whole conversation from its prompt cache. But every real compaction here
+  ran at about 967k tokens: around $0.50 a compaction in cache reads, and
+  about $5 a case to rebuild one for an offline test. A rebuild doesn't
+  work: resuming a transcript cut at its compaction row is refused as too
+  long (the one tried holds 22.5M chars before its boundary; the live
+  session had sent 967k tokens, since Claude Code had cleared old tool
+  output). The fork's picks stay unmeasured; only a live session can test
+  it.
+
+**Where the misses are** (strict label, 12k, 17,986 needed details):
+- **Carried:** 34.8%.
+- **Ranked below the budget:** about 40%. In long sessions most needed
+  details rank far below what the block can hold, so ranking quality is
+  the lever.
+- **Cut by the two pre-ranking filters:** about 25% (details only tools
+  printed, paths passed to tools, single mentions in tool traffic). Removing
+  them lowers coverage, to 34.5% or 34.1%: the learned weights can't
+  separate the few needed ones from the rest.
+
+**What Cursor does** (REA on its agent bundle, 11.8 MB: parsed 1,118 modules
+before the call graph overflowed, then read directly):
+- **Self-summary:** Claude Code's summary prompt nearly word for word, run
+  on the session's own model over its cached prefix.
+- **Kept verbatim:** the last user message.
+- **On failure:** a trimmed transcript instead of a summary.
+- **Recall:** after a summary, it lists the user's other recent
+  conversations with transcript paths and gives the agent a search tool for
+  them, the same idea as amnesia's project-wide recall.
+
+**Two-stage ranking: a small model reranks the shortlist (plugin 0.12.0).**
+The learned ranking scores each detail on its own; it cannot read what the
+work is about. So at each compaction the top 300 of its list, with the end of
+the summary and the kept messages, go to Haiku in one call, which names the
+100 the next steps most likely need. The block leads with those, then the
+learned order. On the same ground truth (69 real compactions):
+
+| top 100 slots per compaction | needed again afterwards |
+|---|---|
+| learned ranking | 1,684 of 6,900 (24.4%) |
+| Haiku rerank of its top 300 | 2,069 of 6,900 (30.0%) |
+
+- **Gain:** on the first ranking, 23% more of the block's picks were details
+  used again, and every batch of 10 compactions came out ahead. On the refit
+  ranking, with more of the work to read, the gain is 45% (above).
+- **Cost:** $0.28 for all 69, about $0.004 per compaction, and up to 30 s
+  added to a compaction (it times out to the learned order).
+- **Failure:** any error, refusal or timeout keeps the learned order, so the
+  block is never worse than before. The `rerank` setting turns it off.
+
+**The receipt no longer counts the harness's own text.** Its "exact strings
+from your dropped prompts" read background-task notices, tool-use ids and tag
+names as things you typed. On this project's latest compaction those were 40 of
+64 strings, every one a miss, so the summary looked like it kept 34% when it
+kept 79% of what was typed (19 of 24). Notices and reminders are now skipped
+whole and tag names dropped; pasted contents still count. Rerun on all real
+sessions: 145 boundaries, 33.8% of typed exact strings in the summary.
+
+**Live check of the rerank** (bench seed, Haiku as the session model, a
+five-sentence lossy summary): Haiku answered in 5.1 s, and the block carried
+the 40 seeded facts the summary dropped, so all 100 survived. With only 58
+candidates it all fit, so the rerank changed the order and nothing else.
+The same run surfaced `history.txt`, the tail of `ci/build-history.txt`,
+which a dotted name can no longer start after a hyphen to produce.
+
+**What other agents do, and what it means here.** Read from source:
+- **Codex CLI:** keeps the newest user messages verbatim, up to 20k tokens.
+- **Cursor:** keeps the last user message verbatim. When summarizing fails,
+  it falls back to a trimmed transcript.
+- **opencode and Cline:** keep a recent tail of 2k–20k tokens, and cut
+  tool results to 2,000 chars before summarizing. Cline also adds a file list
+  built by code.
+- **Gemini CLI:** masks old tool output down to its first and last 10 lines
+  plus a file pointer, then runs a second pass asking what the summary
+  omitted.
+- **Research:** observation masking matched summarization on SWE-bench at
+  half the cost (arXiv 2508.21433).
+
+Tested on the same ground truth:
+- **Your newest dropped prompts verbatim** (the Codex/Cursor trick), given a
+  share of the 12k block: fewer later-needed details at every share. 36.0%
+  with the ranked block alone, 33.0% at 15%, 30.2% at 25%, 24.0% at 50%.
+  Claude Code's summary already lists every message you sent, and a
+  prompt's words cost more per needed value than the values do. Rejected.
+- **Carrying the last block into the next compaction** (opencode, Roo):
+  already done. An earlier block's items re-enter the ranking as old.
+- **The verify pass** (Gemini): the block is that diff, computed without a
+  model call.
 
 ## Known limits of this bench
 
