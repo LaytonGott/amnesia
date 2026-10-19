@@ -189,6 +189,11 @@ export function renderReceipt(env) {
         )}`
       );
     }
+    if (b.blockUse) {
+      out.push(
+        `   used again  ${fmtTokens(b.blockUse.used)} of ${fmtTokens(b.blockUse.lines)} block lines hold a value you or the agent used before the next compaction`
+      );
+    }
     if (b.cumulativeDroppedTokens != null) {
       out.push(
         `   cumulative  ${style.red(

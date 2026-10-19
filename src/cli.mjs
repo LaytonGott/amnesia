@@ -94,6 +94,7 @@ function toJson(env) {
       },
       summary: b.summary,
       pluginBlock: b.pluginBlock ?? null,
+      blockUse: b.blockUse ?? null,
       previews: b.previews,
     })),
   };

@@ -201,11 +201,13 @@ characters) in the prompts that were replaced, and how many of them the
 summary still contains. It is the same measure as the 19% figure above.
 
 With the plugin active, each compaction's receipt also shows what the block
-kept:
+kept, and how many of its lines held a value you or the agent used again
+before the next compaction:
 
 ```
    kept        summary has 22 of 79 exact strings from your dropped prompts (28%); amnesia's block brought back 8 more
    amnesia     block kept 75 exact detail(s) the summary dropped (5,999 chars)
+   used again  43 of 75 block lines hold a value you or the agent used before the next compaction
 
    what amnesia kept (first 5):
    + For brisk-payouts: the pinned SDK version is 5.13.1; the staging port is 45574

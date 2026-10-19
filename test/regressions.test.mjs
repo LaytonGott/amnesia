@@ -26,6 +26,8 @@ import {
   exactStrings,
   pluginBlockOf,
   retentionOf,
+  blockValues,
+  blockUseOf,
   scanFileCached,
 } from "../src/claude.mjs";
 import { isToolResultPath } from "../src/actions.mjs";
@@ -440,4 +442,12 @@ test("an unchanged transcript's scan is reused; a changed one is read again", as
     if (prev === undefined) delete process.env.AMNESIA_HOME;
     else process.env.AMNESIA_HOME = prev;
   }
+});
+
+test("block use counts lines whose values come back before the next compaction", () => {
+  assert.deepEqual(blockValues('f38021b — "git cherry-pick f38021b"'), ["f38021b"]);
+  assert.deepEqual(blockValues("For acme-billing: the staging port is 29860; the tracking ticket is OPS-96797"), ["29860", "OPS-96797"]);
+  const items = ['f38021b — "pick it"', "For acme-billing: the staging port is 29860; the tracking ticket is OPS-96797", "--json"];
+  assert.deepEqual(blockUseOf(items, "deploy acme on 29860, then git show f38021b"), { lines: 3, used: 2 });
+  assert.equal(blockUseOf(items, ""), null);
 });

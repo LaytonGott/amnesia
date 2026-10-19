@@ -92,6 +92,23 @@ export function exactStrings(text) {
   return out;
 }
 
+// the values a block line holds: `x — "where"` holds x; "For owner: the a is v;
+// the b is w" holds v and w
+export function blockValues(item) {
+  const head = String(item).split(' — "')[0];
+  const m = head.match(/^For [^:]+: (.*)$/);
+  if (!m) return [head.trim()];
+  return m[1].split("; ").map((p) => p.trim().split(/\s+/).pop().replace(/[.,]$/, ""));
+}
+
+// of the block's lines, how many hold a value the person or the agent used
+// again before the next compaction (a value of 4+ characters)
+export function blockUseOf(items, laterText) {
+  if (!items?.length || !laterText) return null;
+  const used = items.filter((it) => blockValues(it).some((v) => v.length >= 4 && laterText.includes(v)));
+  return { lines: items.length, used: used.length };
+}
+
 // of the exact strings in the prompts a compaction replaced: how many the
 // summary still has, and how many more the plugin's block brought back
 export function retentionOf(droppedTexts, summary, block) {
@@ -235,10 +252,21 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
 
     if (line.includes('"type":"assistant"') || line.includes('"type": "assistant"')) {
       let uuid = null;
+      let said = "";
       try {
-        uuid = JSON.parse(line)?.uuid || null;
+        const o = JSON.parse(line);
+        uuid = o?.uuid || null;
+        // what the agent wrote and passed to tools, to tell which block lines it used again
+        const c = o?.message?.content;
+        if (Array.isArray(c)) {
+          said = c
+            .map((x) => (x?.type === "text" ? x.text : x?.type === "tool_use" ? JSON.stringify(x.input ?? {}) : ""))
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 4000);
+        }
       } catch {}
-      assistants.push({ lineNo: lines, uuid });
+      assistants.push({ lineNo: lines, uuid, said });
       continue;
     }
   }
@@ -261,6 +289,12 @@ export async function scanFile(file, { withPreviews = false, maxPreviews = 6 } =
     b.coveredAssistants = dropped(assistants).length;
     b.coveredToolResults = dropped(toolBatches).length;
     b.retention = retentionOf(droppedUsers.map((u) => u.text), b.summary, b.pluginBlock);
+    if (b.pluginBlock) {
+      const end = i + 1 < boundaries.length ? boundaries[i + 1].lineNo : Infinity;
+      const inRange = (m) => m.lineNo > b.lineNo && m.lineNo < end;
+      const later = [...users.filter(inRange).map((u) => u.text), ...assistants.filter(inRange).map((m) => m.said)].join("\n");
+      b.blockUse = blockUseOf(b.pluginBlock.items, later);
+    }
     if (withPreviews) {
       b.previews = droppedUsers
         .slice()
@@ -303,18 +337,20 @@ const VERSION = (() => {
     return "unknown";
   }
 })();
+// bumped when what a scan records changes (2: block use)
+const CACHE_KEY = `${VERSION}/2`;
 let scanCache = null;
 let scanCacheDirty = false;
 const scanCachePath = () => join(amnesiaHome(), "scan-cache.json");
 
 function loadScanCache() {
   if (scanCache) return scanCache;
-  scanCache = { version: VERSION, entries: {} };
+  scanCache = { version: CACHE_KEY, entries: {} };
   try {
     // the cache holds summary text from your sessions: owner-only, like the transcripts it mirrors
     chmodSync(scanCachePath(), 0o600);
     const v = JSON.parse(readFileSync(scanCachePath(), "utf8"));
-    if (v && v.version === VERSION && v.entries) scanCache = v;
+    if (v && v.version === CACHE_KEY && v.entries) scanCache = v;
   } catch {}
   process.once("exit", saveScanCache);
   return scanCache;
