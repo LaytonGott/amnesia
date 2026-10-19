@@ -43,6 +43,9 @@ In Claude Code (one-step install needs 2.1.275 or later; verified on
     empty one.
   - A search reads the newest 3,000 archive files.
   - Archives are not pruned yet.
+  - Secrets are redacted before they are archived. Archives written by an
+    older release keep what its redaction missed until you run
+    `/amnesia-scrub`, which re-redacts every session's archive in place.
   - Headless runs need the tool allowed (`--allowedTools
     mcp__amnesia__recall`); `--tools ""` removes plugin tools too.
 

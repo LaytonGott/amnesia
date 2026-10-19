@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing';
 import type { On, SessionMessage } from 'claude-code';
-import { JIT_LEAD, promptRecall, promptTerms, redact, search, termsOf, toolRecord, droppedFiles, type Rec } from '../hooks/recall.ts';
+import { JIT_LEAD, promptRecall, promptTerms, redact, scrubFile, search, termsOf, toolRecord, droppedFiles, type Rec } from '../hooks/recall.ts';
 
 const rec = (label: string, text: string, at: number, kind: Rec['kind'] = 'tool'): Rec => ({ kind, label, text, at });
 
@@ -340,4 +340,19 @@ test('redaction covers common token formats, env-style names and URL passwords',
   // a setting whose name merely contains a secret word is kept
   expect(redact('TOKEN_WINDOW_MS=tenant-0.internal')).toBe('TOKEN_WINDOW_MS=tenant-0.internal');
   expect(redact('max_tokens: 32000')).toBe('max_tokens: 32000');
+});
+
+test('scrubbing an old archive file re-redacts its records and leaves clean files untouched', () => {
+  const token = 'gho_' + 'Z'.repeat(36);
+  const old = JSON.stringify([
+    { kind: 'tool', at: 1, label: 'Bash', text: `export GH=${token}` },
+    { kind: 'tool', at: 2, label: 'Bash', text: 'TOKEN_WINDOW_MS=tenant-0.internal' },
+  ]);
+  const out = scrubFile(old);
+  expect(out.changed).toBe(1);
+  expect(out.json).not.toContain(token);
+  expect(out.json).toContain('TOKEN_WINDOW_MS=tenant-0.internal');
+  // a single-record file, already clean: same text back
+  const clean = JSON.stringify({ kind: 'said', at: 3, label: 'user', text: 'deploy svc-3-api' });
+  expect(scrubFile(clean)).toEqual({ json: clean, changed: 0 });
 });

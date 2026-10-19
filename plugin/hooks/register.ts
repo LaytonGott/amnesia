@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code';
 import { RERANK_POOL, candidates, parsePicks, rerankPrompt, specificsBlock, steerText, withSteer, type Msg } from './specifics.ts';
-import { RECALL_DESCRIPTION, archivable, droppedFiles, promptRecall, saidRecord, search, toolRecord, type Rec } from './recall.ts';
+import { RECALL_DESCRIPTION, archivable, droppedFiles, promptRecall, saidRecord, scrubFile, search, toolRecord, type Rec } from './recall.ts';
 
 // userConfig budgetChars (plugin.json declares the default and range)
 const budgetOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(40000, Math.max(1000, v)) : 12000);
@@ -12,6 +12,7 @@ const keyOf = (m: Msg) => m.handle ?? `${m.role}\u0000${m.text}`;
 const STEER_CHARS = 2000;
 
 const RECALL = 'recall';
+const SCRUB = 'amnesia-scrub';
 // the newest archive files a search reads; older ones stay on disk
 const SEARCH_FILES = 3000;
 
@@ -118,9 +119,41 @@ export const register: Register = (on, options) => {
       try {
         await $.fs.write(`${await archiveDir($)}/meta.json`, JSON.stringify({ cwd: e.cwd, at: Date.now() }));
       } catch {}
+      try {
+        await $.command.register({ name: SCRUB, description: "Re-redact amnesia's recall archive (every session) with today's secret patterns" });
+      } catch {}
     }
     return r;
   });
+
+  // archives written by an older release keep whatever its redaction missed:
+  // run every record through today's, in place
+  on('command.run', { command: SCRUB }, async ($) => {
+    const root = await archiveRoot($);
+    let sessions = 0, files = 0, records = 0, failed = 0;
+    for (const d of await $.fs.list(root).catch(() => [])) {
+      if (d.kind !== 'dir') continue;
+      sessions++;
+      for (const f of await $.fs.list(`${root}/${d.name}`).catch(() => [])) {
+        if (f.kind === 'dir' || !f.name.endsWith('.json') || f.name === 'meta.json') continue;
+        const path = `${root}/${d.name}/${f.name}`;
+        try {
+          const out = scrubFile(String(await $.fs.read(path)));
+          if (out.changed) {
+            await $.fs.write(path, out.json);
+            files++;
+            records += out.changed;
+          }
+        } catch {
+          failed++;
+        }
+      }
+    }
+    return {
+      text: `amnesia: re-redacted ${records} record(s) in ${files} file(s) across ${sessions} session archive(s)` +
+        (failed ? `; ${failed} file(s) could not be read or written` : '') + '.',
+    };
+  }).catch(($, e, next) => next(e));
 
   on('tool.call', async ($, e, next) => {
     // the recall tool itself: answered here, never by core

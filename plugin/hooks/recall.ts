@@ -56,6 +56,25 @@ export function redact(s: string): string {
   return out.replace(ASSIGNED, (all, key: string, value: string) => (secretish(value) ? `${key}[redacted]` : all));
 }
 
+// one archive file's records again through today's redaction (for archives
+// written by an older release): the file's new JSON and how many records changed
+export function scrubFile(json: string): { json: string; changed: number } {
+  const parsed: unknown = JSON.parse(json);
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  let changed = 0;
+  for (const r of list) {
+    if (r && typeof r === 'object' && typeof (r as Rec).text === 'string') {
+      const before = (r as Rec).text;
+      const after = redact(before);
+      if (after !== before) {
+        (r as Rec).text = after;
+        changed++;
+      }
+    }
+  }
+  return { json: changed ? JSON.stringify(parsed) : json, changed };
+}
+
 // tool arguments as one short line (the command, the path, the pattern), without amnesia's own reserved keys
 export function inputLine(input: Record<string, unknown>): string {
   const parts: string[] = [];
