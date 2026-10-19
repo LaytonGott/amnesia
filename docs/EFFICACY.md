@@ -663,17 +663,49 @@ At 12k, held out on two halves of 70 real compactions for the strict label:
   70 had some). Every mix scored 41.7%, against 41.8% with the global
   weights alone. One set of weights generalizes.
 
-**The rerank, re-checked on the refit order, with your last requests.** In
-the top 100 slots of 70 compactions (7,000 slots, $0.30 a run):
+**The rerank, re-checked: the more it reads, the better it picks.** Top 100
+slots of 70 compactions (7,000 slots), all arms on the same order: the
+loose-label refit for the first table, the shipped strict-label weights for
+the second.
 
-| order | used again |
+| what Haiku reads (loose-label weights) | used again |
 |---|---|
-| learned ranking alone | 38.9% |
-| Haiku rerank, end of summary and kept messages | 41.4% |
-| **Haiku rerank, plus your last two dropped requests (shipped)** | **43.0%** |
+| nothing: learned order alone | 38.9% |
+| end of summary (3k chars), kept messages | 41.4% |
+| + your last two dropped requests | 43.0% |
 
-The refit alone took the learned top 100 from 24.4% to 38.9%. The rerank
-adds 10% on top of that.
+| what Haiku reads (shipped weights) | strict label | any later use |
+|---|---|---|
+| nothing: learned order alone | 13.3% | 27.3% |
+| end of summary, kept messages, your last two requests | 17.5% | 36.6% |
+| **whole summary (12k), kept (3k), last 6 dropped messages, your last two requests (shipped)** | **19.3%** | **39.0%** |
+
+- **Cost:** $0.38 for all 70, about $0.005 a compaction.
+- **The trend says more context helps.** A fork of the main thread
+  (`$.model.fork`, which Cursor's self-summary resembles) would read the
+  whole conversation from its prompt cache. But every real compaction here
+  ran at about 967k tokens: around $0.50 a compaction in cache reads, and
+  about $5 a case to rebuild one for an offline test. Not run yet.
+
+**Where the misses are** (strict label, 12k, 17,986 needed details):
+- **Carried:** 34.8%.
+- **Ranked below the budget:** about 40%. In long sessions most needed
+  details rank far below what the block can hold, so ranking quality is
+  the lever.
+- **Cut by the two pre-ranking filters:** about 25% (details only tools
+  printed, paths passed to tools, single mentions in tool traffic). Removing
+  them lowers coverage, to 34.5% or 34.1%: the learned weights can't
+  separate the few needed ones from the rest.
+
+**What Cursor does** (REA on its agent bundle, 11.8 MB: parsed 1,118 modules
+before the call graph overflowed, then read directly):
+- **Self-summary:** Claude Code's summary prompt nearly word for word, run
+  on the session's own model over its cached prefix.
+- **Kept verbatim:** the last user message.
+- **On failure:** a trimmed transcript instead of a summary.
+- **Recall:** after a summary, it lists the user's other recent
+  conversations with transcript paths and gives the agent a search tool for
+  them, the same idea as amnesia's project-wide recall.
 
 **Two-stage ranking: a small model reranks the shortlist (plugin, branch feat/xsession).**
 The learned ranking scores each detail on its own; it cannot read what the
@@ -689,7 +721,7 @@ learned order. On the same ground truth (69 real compactions):
 
 - **Gain:** on the first ranking, 23% more of the block's picks were details
   used again, and every batch of 10 compactions came out ahead. On the refit
-  ranking, with your last requests added, the gain is 10% (above).
+  ranking, with more of the work to read, the gain is 45% (above).
 - **Cost:** $0.28 for all 69, about $0.004 per compaction, and up to 30 s
   added to a compaction (it times out to the learned order).
 - **Failure:** any error, refusal or timeout keeps the learned order, so the

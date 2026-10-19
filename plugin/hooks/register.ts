@@ -249,14 +249,26 @@ export const register: Register = (on, options) => {
         if (pool.length >= 20) {
           const summaryText = fresh.map((i) => done.messages[i]?.text ?? '').join('\n');
           const keptText = kept.map((m) => m.text).join('\n');
-          // the person's last two requests too: with them, 43.0% of the picks
-          // were used again, against 41.4% from the summary's end alone
+          // the more of the work it reads, the better it picks: with the whole
+          // summary, the last messages before it and the person's last two
+          // requests, 19.3% of its picks were session-specific details used
+          // again, against 17.5% with the summary's end and the requests, and
+          // 13.3% for the learned order alone (70 real compactions)
           const asks = dropped
             .filter((m) => m.role === 'user' && !m.toolResults?.length && m.text.trim() && !m.text.startsWith('[amnesia]'))
             .slice(-2)
             .map((m) => m.text.slice(0, 1000))
             .join('\n');
-          const wip = `${summaryText.slice(-3000)}\n${keptText.slice(-1500)}${asks ? `\nThe person's latest requests:\n${asks}` : ''}`;
+          const recent = dropped
+            .slice(-6)
+            .map((m) => `${m.role}: ${m.text.slice(0, 1500)}`)
+            .join('\n');
+          const wip = [
+            summaryText.slice(-12000),
+            keptText.slice(-3000),
+            `The last messages before the summary:\n${recent}`,
+            ...(asks ? [`The person's latest requests:\n${asks}`] : []),
+          ].join('\n');
           const r = await $.model.complete({
             model: 'haiku',
             prompt: rerankPrompt(pool, wip),

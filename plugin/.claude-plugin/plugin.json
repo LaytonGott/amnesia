@@ -24,7 +24,7 @@
     "rerank": {
       "type": "boolean",
       "title": "Rerank the block with a small model",
-      "description": "At each compaction, ask Haiku which of the dropped details the work in progress needs most, and lead the block with them. One short call, about $0.004; on real sessions it made the block's picks 10% more often ones used again. Off: the learned order alone.",
+      "description": "At each compaction, ask Haiku which of the dropped details the work in progress needs most, and lead the block with them. One short call, about $0.005; on real sessions it made the block's picks 45% more often details used again. Off: the learned order alone.",
       "default": true
     },
     "autoRecall": {

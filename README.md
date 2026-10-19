@@ -123,11 +123,12 @@ How it picks what to add:
   sessions the block carries 35% of the dropped details particular to the
   session that were used again, against 31% before the refit.
 - **What it leaves out:** anything the summary already has.
-- **A second opinion:** at each compaction, Haiku reads the end of the
-  summary, your last two requests and the top 300 candidates, and picks the
-  100 the work in progress needs most; those lead the block. On real
-  sessions that made 10% more of the picks ones used again (43.0% vs
-  38.9%), for about $0.004 a compaction. Any failure keeps
+- **A second opinion:** at each compaction, Haiku reads the summary, the
+  last messages before it, your last two requests and the top 300
+  candidates, and picks the 100 the work in progress needs most; those lead
+  the block. On real sessions that made 45% more of the picks
+  session-specific details used again (19.3% vs 13.3%), for about $0.005 a
+  compaction. Any failure keeps
   the learned order. The `rerank` setting turns it off.
 - **The budget:** 12,000 chars by default, about 3k tokens, added to
   context after each compaction. On real sessions, going from 6,000 to

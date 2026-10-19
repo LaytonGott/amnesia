@@ -36,7 +36,7 @@ In Claude Code (one-step install needs 2.1.275 or later; verified on
 - **Budget:** the block is capped at 12,000 chars by default (about 3k
   tokens of context after each compaction). Change it with the
   `budgetChars` setting (1,000–40,000): `claude plugin configure amnesia`.
-- **Rerank:** one Haiku call per compaction (about $0.004, up to 30 s),
+- **Rerank:** one Haiku call per compaction (about $0.005, up to 30 s),
   billed like any other request of the session. `rerank: false` skips it.
 - **Recall:**
   - The archive is kept per session id, so a forked session starts an
