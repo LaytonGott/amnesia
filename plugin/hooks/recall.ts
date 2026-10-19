@@ -109,7 +109,7 @@ export function termsOf(query: string): string[] {
   return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}._/:@#=-]+/u).filter((t) => t.length >= 2))];
 }
 
-export function search(records: readonly Rec[], query: string, limit = 6, maxChars = 8000, { project = false }: { project?: boolean } = {}): string {
+export function search(records: readonly Rec[], query: string, limit = 10, maxChars = 8000, { project = false }: { project?: boolean } = {}): string {
   const terms = termsOf(query);
   const phrase = query.toLowerCase().trim();
   if (terms.length === 0) return 'Give recall a query: a name, value, path, error or topic to look for.';

@@ -795,7 +795,8 @@ in what recall returns:
 | term counts, snippet at the first hit | 31.0% | 36.7% | 48.8% |
 | + rare terms weigh more | 34.7% | | |
 | + snippet where the terms meet | 37.3% | | |
-| **both (shipped)** | **41.9%** | | |
+| both | 41.9% | | |
+| **both, 10 results by default (shipped in plugin 0.12.2)** | **46.0%** at top 10 (44.1% at 8) | | |
 
 The old snippet was the 660 chars around the first hit of any word, so a
 message that ranked first could still show text without the value. Search

@@ -108,7 +108,7 @@ export const register: Register = (on, options) => {
           type: 'object',
           properties: {
             query: { type: 'string', description: 'Distinctive words or strings to look for.' },
-            limit: { type: 'number', description: 'Most snippets to return (default 6).' },
+            limit: { type: 'number', description: 'Most snippets to return (default 10).' },
             scope: { type: 'string', enum: ['session', 'project'], description: 'session (default): this session. project: what was said in this project\'s other sessions.' },
           },
           required: ['query'],
@@ -127,7 +127,7 @@ export const register: Register = (on, options) => {
     if (e.tool.startsWith('mcp__amnesia') && e.tool.endsWith(`__${RECALL}`)) {
       const input = e as unknown as { query?: unknown; limit?: unknown; scope?: unknown };
       const query = typeof input.query === 'string' ? input.query : '';
-      const limit = typeof input.limit === 'number' ? Math.min(20, Math.max(1, Math.floor(input.limit))) : 6;
+      const limit = typeof input.limit === 'number' ? Math.min(20, Math.max(1, Math.floor(input.limit))) : 10;
       if (input.scope === 'project') {
         try {
           const recs = await projectRecords($, await $.session.cwd());

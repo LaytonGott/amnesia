@@ -60,10 +60,10 @@ for (const c of cases) {
     const q = queryFor(c.after, val(h));
     if (!q) { noQuery++; continue; }
     missed++;
-    const ok = search(recs, q, Number(process.env.LIM ?? 6), Number(process.env.MAXC ?? 8000)).includes(val(h));
+    const ok = search(recs, q, Number(process.env.LIM ?? 10), Number(process.env.MAXC ?? 8000)).includes(val(h));
     if (ok) found++;
     const k = byKind[h.kind] ?? [0, 0]; k[0]++; if (ok) k[1]++; byKind[h.kind] = k;
   }
 }
-console.log(`block carried ${carried}; missed with a usable query ${missed}, recall top-6 found ${found} (${((100 * found) / missed).toFixed(1)}%); no query words ${noQuery}`);
+console.log(`block carried ${carried}; missed with a usable query ${missed}, recall top results found ${found} (${((100 * found) / missed).toFixed(1)}%); no query words ${noQuery}`);
 console.log(Object.entries(byKind).sort((a, b) => b[1][0] - a[1][0]).map(([k, [n, f]]) => `${k} ${f}/${n} (${((100 * f) / n).toFixed(0)}%)`).join(', '));
