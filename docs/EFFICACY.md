@@ -685,7 +685,12 @@ the second.
   (`$.model.fork`, which Cursor's self-summary resembles) would read the
   whole conversation from its prompt cache. But every real compaction here
   ran at about 967k tokens: around $0.50 a compaction in cache reads, and
-  about $5 a case to rebuild one for an offline test. Not run yet.
+  about $5 a case to rebuild one for an offline test. A rebuild doesn't
+  work: resuming a transcript cut at its compaction row is refused as too
+  long (the one tried holds 22.5M chars before its boundary; the live
+  session had sent 967k tokens, since Claude Code had cleared old tool
+  output). The fork's picks stay unmeasured; only a live session can test
+  it.
 
 **Where the misses are** (strict label, 12k, 17,986 needed details):
 - **Carried:** 34.8%.
