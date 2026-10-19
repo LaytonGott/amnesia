@@ -797,7 +797,11 @@ label, 12k):
 This ground truth only checks that a value is in the block, not that the
 agent can tell what it is. A bare hash is close to useless, and the 1,000-char
 bench found values without enough context led the agent to use wrong ones.
-Shortening the quote needs a behavioral test (bench/run-unasked.mjs) first.
+Shortening the quote needs a behavioral test (bench/run-unasked.mjs) first. The
+existing seed can't do it: its planted facts are all owner-bound settings,
+which carry no quote, so at 2,000 chars both lengths built the same block
+(18 facts, 16 lines). It needs a seed whose details are quoted ones
+(hashes, paths, names mentioned in prose).
 
 ## Known limits of this bench
 
