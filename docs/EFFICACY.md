@@ -783,6 +783,22 @@ Tested on the same ground truth:
 - **The verify pass** (Gemini): the block is that diff, computed without a
   model call.
 
+**Context snippet length, not changed.** Each block line quotes up to 80
+chars of where the detail came from. Shorter quotes fit more details (strict
+label, 12k):
+
+| quote length | carried | lines holding a needed detail |
+|---|---|---|
+| none | 37.3% | 24.4% |
+| 40 chars | 36.5% | 29.0% |
+| **80 chars (shipped)** | **34.8%** | **31.5%** |
+| 120 chars | 34.5% | 32.1% |
+
+This ground truth only checks that a value is in the block, not that the
+agent can tell what it is. A bare hash is close to useless, and the 1,000-char
+bench found values without enough context led the agent to use wrong ones.
+Shortening the quote needs a behavioral test (bench/run-unasked.mjs) first.
+
 ## Known limits of this bench
 
 - Short sessions maximize summary retention; long-session behavior is
