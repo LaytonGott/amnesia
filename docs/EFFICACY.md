@@ -681,6 +681,11 @@ the second.
 | **whole summary (12k), kept (3k), last 6 dropped messages, your last two requests (shipped)** | **19.3%** | **39.0%** |
 
 - **Cost:** $0.38 for all 70, about $0.005 a compaction.
+- **Shortlist size:** with the same context, Haiku choosing from 300
+  candidates does best. From 200, 17.0% strict (35.9% any later use); from
+  500, 17.7% (34.9%). Fewer candidates leave out needed details, while more
+  of them bury those details among noise. One run per size, so the gaps are
+  approximate, but 300 led on both labels.
 - **The trend says more context helps.** A fork of the main thread
   (`$.model.fork`, which Cursor's self-summary resembles) would read the
   whole conversation from its prompt cache. But every real compaction here
