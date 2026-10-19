@@ -1,6 +1,6 @@
 {
   "name": "amnesia",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "Keeps what compaction drops: appends the exact details the summary lost, and gives the agent a recall tool over everything earlier in the session.",
   "author": {
     "name": "LaytonGott",
