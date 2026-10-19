@@ -309,3 +309,15 @@ test('project scope with no other logged sessions says so', async ($, on) => {
   const out = String(((await $.tool.call({ tool: 'mcp__amnesia__recall', query: 'anything', scope: 'project' } as never)) as { result?: unknown }).result);
   expect(out).toContain('No other session of this project has kept a log yet');
 });
+
+test('search ranks by rare terms and shows where the terms meet', () => {
+  const filler = 'deploy notes '.repeat(60);
+  const recs: Rec[] = [
+    // many hits on a common word, none on the rare one
+    { kind: 'tool', at: 3, label: 'Bash', text: 'deploy deploy deploy deploy deploy staging staging' },
+    // the answer sits far from the first hit of "deploy"
+    { kind: 'dropped', at: 1, label: 'user', text: `deploy ${filler} the ledger-holds release pins region eu-west-7 for deploy` },
+  ];
+  const out = search(recs, 'deploy ledger-holds region', 1);
+  expect(out).toContain('eu-west-7');
+});

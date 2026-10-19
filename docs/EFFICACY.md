@@ -783,6 +783,24 @@ Tested on the same ground truth:
 - **The verify pass** (Gemini): the block is that diff, computed without a
   model call.
 
+**Recall as the safety net, and a better search (plugin, unreleased).** For
+each session-specific detail used again that the 12k block missed (11,748 on
+70 compactions), recall was queried the way an agent that knows the subject
+but not the value would: the five content words around its later use, the
+value left out (`node bench/recall-reach.mts`). Found means the value shows
+in what recall returns:
+
+| search | top 6 | top 12 | top 50 |
+|---|---|---|---|
+| term counts, snippet at the first hit | 31.0% | 36.7% | 48.8% |
+| + rare terms weigh more | 34.7% | | |
+| + snippet where the terms meet | 37.3% | | |
+| **both (shipped)** | **41.9%** | | |
+
+The old snippet was the 660 chars around the first hit of any word, so a
+message that ranked first could still show text without the value. Search
+stays fast: 25–30 ms over this session's 3,000-record archive (3.7M chars).
+
 **Context snippet length, not changed.** Each block line quotes up to 80
 chars of where the detail came from. Shorter quotes fit more details (strict
 label, 12k):
