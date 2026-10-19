@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing';
 import type { On, SessionMessage } from 'claude-code';
-import { JIT_LEAD, promptRecall, promptTerms, search, termsOf, toolRecord, droppedFiles, type Rec } from '../hooks/recall.ts';
+import { JIT_LEAD, promptRecall, promptTerms, redact, search, termsOf, toolRecord, droppedFiles, type Rec } from '../hooks/recall.ts';
 
 const rec = (label: string, text: string, at: number, kind: Rec['kind'] = 'tool'): Rec => ({ kind, label, text, at });
 
@@ -320,4 +320,24 @@ test('search ranks by rare terms and shows where the terms meet', () => {
   ];
   const out = search(recs, 'deploy ledger-holds region', 1);
   expect(out).toContain('eu-west-7');
+});
+
+test('redaction covers common token formats, env-style names and URL passwords', () => {
+  const secrets = [
+    'gho_' + 'A'.repeat(36), 'ghs_' + 'b'.repeat(36), 'ASIA' + 'Q'.repeat(16),
+    'sk_live_' + '4eC39HqLyjWDarjtT1zdp7dc', 'npm_' + 'a1B2c3D4e5'.repeat(4), 'hf_' + 'AbCdEfGhIjKlMnOpQrStUvWxYz012345',
+    'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZSJ9.abcdefghijklmnopqrstuvwxyz012345',
+    // built from pieces so the fake webhook isn't a literal secret-scanners block
+    ['https://hooks.slack.com', 'services', 'T00000000', 'B00000000', 'X'.repeat(24)].join('/'),
+  ];
+  for (const s of secrets) expect(redact(`here: ${s} done`)).not.toContain(s);
+  expect(redact('AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY')).not.toContain('wJalrXUtnFEMI');
+  expect(redact('VERCEL_TOKEN=xQ9xQ9xQ9xQ9xQ9xQ9xQ9xQ9')).not.toContain('xQ9xQ9');
+  expect(redact('client_secret: "9f8e7d6c5b4a39281706f5e4d3c2b1a0"')).not.toContain('9f8e7d6c');
+  const url = redact('DATABASE_URL=postgres://admin:S3cretPassw0rd@db.example.com:5432/app');
+  expect(url).not.toContain('S3cretPassw0rd');
+  expect(url).toContain('db.example.com:5432');
+  // a setting whose name merely contains a secret word is kept
+  expect(redact('TOKEN_WINDOW_MS=tenant-0.internal')).toBe('TOKEN_WINDOW_MS=tenant-0.internal');
+  expect(redact('max_tokens: 32000')).toBe('max_tokens: 32000');
 });

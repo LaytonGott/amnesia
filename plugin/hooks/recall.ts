@@ -36,11 +36,19 @@ const cap = (s: string, n: number) => (s.length > n ? s.slice(0, n) + `\n[… ${
 // values assigned to key/secret/token/password names
 const SECRETS: [RegExp, string][] = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[private key redacted]'],
-  [/\b(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35})\b/g, '[secret redacted]'],
+  [/\b(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|[sr]k_(?:live|test)_[A-Za-z0-9]{16,}|npm_[A-Za-z0-9]{30,}|hf_[A-Za-z0-9]{30,}|GOCSPX-[A-Za-z0-9_-]{20,}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|SK[0-9a-f]{32})\b/g, '[secret redacted]'],
+  // JSON web tokens (Supabase keys among them)
+  [/\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}/g, '[secret redacted]'],
+  // webhook URLs that are themselves the credential
+  [/https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]+/g, '[secret redacted]'],
+  // a password inside a connection URL: keep the scheme, user and host
+  [/(\b[a-z][a-z0-9+.-]*:\/\/[^:/@\s]+:)[^@\s/]+(@)/gi, '$1[redacted]$2'],
 ];
-// a value assigned to a secret-ish name; prose and code about these names
-// ("`password=` values", "whole token: config.ts", a regex) are left alone
-const ASSIGNED = /\b((?:api[_-]?key|secret|token|password|passwd|authorization)["']?\s*[:=]\s*["']?)(?:Bearer\s+)?([^\s"',;`/\\[][^\s"',;`]{7,})/gi;
+// a value assigned to a secret-ish name, including names that only end in one
+// (VERCEL_TOKEN, AWS_SECRET_ACCESS_KEY, client_secret), not ones that merely
+// contain one (TOKEN_WINDOW_MS is a setting); prose and code about
+// these names ("`password=` values", "whole token: config.ts", a regex) are left alone
+const ASSIGNED = /(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|pwd|credentials?|authorization)(?:[_-](?:access[_-])?key)?["']?\s*[:=]\s*["']?)(?:Bearer\s+)?([^\s"',;`/\\[][^\s"',;`]{7,})/gi;
 const secretish = (v: string) => /\d/.test(v) || v.length >= 16;
 export function redact(s: string): string {
   let out = s;
