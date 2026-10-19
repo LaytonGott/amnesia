@@ -783,7 +783,7 @@ Tested on the same ground truth:
 - **The verify pass** (Gemini): the block is that diff, computed without a
   model call.
 
-**Recall as the safety net, and a better search (plugin, unreleased).** For
+**Recall as the safety net, and a better search (plugin 0.12.1).** For
 each session-specific detail used again that the 12k block missed (11,748 on
 70 compactions), recall was queried the way an agent that knows the subject
 but not the value would: the five content words around its later use, the
