@@ -802,6 +802,14 @@ The old snippet was the 660 chars around the first hit of any word, so a
 message that ranked first could still show text without the value. Search
 stays fast: 25–30 ms over this session's 3,000-record archive (3.7M chars).
 
+**First live reading of the block, by kind (receipt 0.19.3).** Over the 5 real
+compactions that carried a block, 89 of 214 lines held a value used again
+before the next compaction: tickets 3/3, flags 17/21, key = value 3/4, names
+37/75, paths 15/39, hashes 10/41, versions 3/13, URLs 1/14, prose 0/4. Hashes
+and URLs are protected on purpose (rarely needed, costly when they are), and
+flags come back partly because common ones recur anyway. Too few compactions,
+mostly from one session, to refit on: no change.
+
 **Context snippet length, not changed.** Each block line quotes up to 80
 chars of where the detail came from. Shorter quotes fit more details (strict
 label, 12k):
